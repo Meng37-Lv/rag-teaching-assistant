@@ -1,0 +1,24 @@
+[
+  {
+    "id": "Q01",
+    "mode": "question_optimize",
+    "question": "什么是深度学习？"
+  },
+  {
+    "id": "Q02",
+    "mode": "question_optimize",
+    "question": "神经网络有什么用？"
+  },
+  {
+    "id": "A01",
+    "mode": "answer_evaluate",
+    "question": "什么是深度学习？",
+    "student_answer": "深度学习是机器学习的一种，就是让电脑通过数据学习。"
+  },
+  {
+    "id": "A02",
+    "mode": "answer_evaluate",
+    "question": "神经网络为什么需要激活函数？",
+    "student_answer": "激活函数可以让神经网络计算得更快。"
+  }
+]
