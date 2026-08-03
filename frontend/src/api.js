@@ -1,9 +1,22 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+const BROWSER_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+let desktopApiBaseUrlPromise = null
+
+async function getApiBaseUrl() {
+  if (!window.__TAURI_INTERNALS__) return BROWSER_API_BASE_URL
+
+  if (!desktopApiBaseUrlPromise) {
+    desktopApiBaseUrlPromise = import('@tauri-apps/api/core')
+      .then(({ invoke }) => invoke('api_base_url'))
+      .then((value) => String(value).replace(/\/$/, ''))
+  }
+  return desktopApiBaseUrlPromise
+}
 
 async function postJson(path, body) {
   let response
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    const apiBaseUrl = await getApiBaseUrl()
+    response = await fetch(`${apiBaseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -18,7 +31,8 @@ async function postJson(path, body) {
 async function postForm(path, formData) {
   let response
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    const apiBaseUrl = await getApiBaseUrl()
+    response = await fetch(`${apiBaseUrl}${path}`, {
       method: 'POST',
       body: formData,
     })

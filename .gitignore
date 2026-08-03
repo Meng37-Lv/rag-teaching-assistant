@@ -20,6 +20,10 @@ frontend/dist/
 dist/
 build/
 *.spec
+release/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/**/binaries/
 
 # Runtime files
 logs/
