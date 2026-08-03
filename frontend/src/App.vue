@@ -2,8 +2,10 @@
 import { computed, ref } from 'vue'
 import { evaluateAnswer, generatePresentationQuestions, optimizeQuestion } from './api.js'
 
-const mode = ref('question')
-const question = ref('')
+const page = ref('home')
+const mode = ref(null)
+const optimizedQuestionInput = ref('')
+const answerQuestionInput = ref('')
 const studentAnswer = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
@@ -14,6 +16,11 @@ const presentationFiles = ref([])
 const presentationText = ref('')
 const fileInput = ref(null)
 
+const FEATURES = [
+  { mode: 'question', number: '01', title: '优化问题', className: 'feature-question' },
+  { mode: 'answer', number: '02', title: '评价答案', className: 'feature-answer' },
+  { mode: 'presentation', number: '03', title: '课程汇报提问', className: 'feature-presentation' },
+]
 const QUESTION_LEVEL_CLASSES = {
   easy: 'level-easy',
   medium: 'level-medium',
@@ -85,6 +92,17 @@ function formatCourseReferences(value) {
 const isQuestionMode = computed(() => mode.value === 'question')
 const isAnswerMode = computed(() => mode.value === 'answer')
 const isPresentationMode = computed(() => mode.value === 'presentation')
+const isHomePage = computed(() => page.value === 'home')
+const isInputPage = computed(() => page.value === 'input')
+const isResultPage = computed(() => page.value === 'result')
+const currentFeature = computed(() => FEATURES.find((feature) => feature.mode === mode.value))
+const question = computed({
+  get: () => (isAnswerMode.value ? answerQuestionInput.value : optimizedQuestionInput.value),
+  set: (value) => {
+    if (isAnswerMode.value) answerQuestionInput.value = value
+    else optimizedQuestionInput.value = value
+  },
+})
 const hasPresentationText = computed(() => Boolean(presentationText.value.trim()))
 const presentationQuestions = computed(() => {
   if (!Array.isArray(result.value?.questions)) return []
@@ -102,13 +120,45 @@ const canSubmit = computed(() => {
   return true
 })
 
-function selectMode(nextMode) {
-  if (loading.value || mode.value === nextMode) return
-  mode.value = nextMode
+function resetResultState() {
   result.value = null
   errorMessage.value = ''
   revealedOptimizedQuestions.value = []
   revealedPresentationQuestions.value = []
+}
+
+function openFeature(nextMode) {
+  if (loading.value) return
+  mode.value = nextMode
+  resetResultState()
+  page.value = 'input'
+}
+
+function clearCurrentSession() {
+  if (isQuestionMode.value) optimizedQuestionInput.value = ''
+  if (isAnswerMode.value) {
+    answerQuestionInput.value = ''
+    studentAnswer.value = ''
+  }
+  if (isPresentationMode.value) {
+    presentationFiles.value = []
+    presentationText.value = ''
+    if (fileInput.value) fileInput.value.value = ''
+  }
+  resetResultState()
+}
+
+function goHome(clearInput = false) {
+  if (loading.value) return
+  if (clearInput) clearCurrentSession()
+  else resetResultState()
+  page.value = 'home'
+}
+
+function returnToInput() {
+  if (loading.value || !mode.value) return
+  errorMessage.value = ''
+  page.value = 'input'
 }
 
 function toggleOptimizedQuestion(index) {
@@ -211,16 +261,19 @@ async function submit() {
   revealedPresentationQuestions.value = []
 
   try {
+    let nextResult
     if (isQuestionMode.value) {
-      result.value = await optimizeQuestion(question.value.trim())
+      nextResult = await optimizeQuestion(question.value.trim())
     } else if (isAnswerMode.value) {
-      result.value = await evaluateAnswer(question.value.trim(), studentAnswer.value.trim())
+      nextResult = await evaluateAnswer(question.value.trim(), studentAnswer.value.trim())
     } else {
-      result.value = await generatePresentationQuestions(
+      nextResult = await generatePresentationQuestions(
         presentationFiles.value,
         presentationText.value,
       )
     }
+    result.value = nextResult
+    page.value = 'result'
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '请求失败，请稍后重试。'
   } finally {
@@ -231,42 +284,50 @@ async function submit() {
 
 <template>
   <main class="page-shell">
+    <nav v-if="!isHomePage" class="page-navigation" aria-label="页面导航">
+      <button
+        type="button"
+        class="navigation-button"
+        :disabled="loading"
+        @click="isResultPage ? returnToInput() : goHome(false)"
+      >
+        <span aria-hidden="true">←</span>
+        返回
+      </button>
+      <button
+        type="button"
+        class="navigation-button"
+        :disabled="loading"
+        @click="goHome(true)"
+      >主页</button>
+    </nav>
+
     <header class="hero">
       <div class="eyebrow">AI · 课程学习反馈</div>
       <h1>课程知识增强教学辅助系统</h1>
       <p>基于课程PPT知识库生成学习反馈</p>
     </header>
 
-    <section class="workspace" aria-label="教学辅助操作区">
-      <nav class="mode-switch" aria-label="选择反馈模式">
-        <button
-          type="button"
-          :class="{ active: isQuestionMode }"
-          :aria-pressed="isQuestionMode"
-          @click="selectMode('question')"
-        >
-          <span class="mode-number">01</span>
-          优化学生问题
-        </button>
-        <button
-          type="button"
-          :class="{ active: isAnswerMode }"
-          :aria-pressed="isAnswerMode"
-          @click="selectMode('answer')"
-        >
-          <span class="mode-number">02</span>
-          评价学生答案
-        </button>
-        <button
-          type="button"
-          :class="{ active: isPresentationMode }"
-          :aria-pressed="isPresentationMode"
-          @click="selectMode('presentation')"
-        >
-          <span class="mode-number">03</span>
-          课程汇报提问
-        </button>
-      </nav>
+    <section v-if="isHomePage" class="home-menu" aria-label="选择教学辅助功能">
+      <button
+        v-for="feature in FEATURES"
+        :key="feature.mode"
+        type="button"
+        class="home-feature-card"
+        :class="feature.className"
+        @click="openFeature(feature.mode)"
+      >
+        <span class="home-feature-number">{{ feature.number }}</span>
+        <strong>{{ feature.title }}</strong>
+        <span class="home-feature-arrow" aria-hidden="true">→</span>
+      </button>
+    </section>
+
+    <section v-else-if="isInputPage" class="workspace" aria-label="教学辅助输入区">
+      <header class="view-heading">
+        <span>{{ currentFeature?.number }}</span>
+        <h2>{{ currentFeature?.title }}</h2>
+      </header>
 
       <form class="input-area" :class="{ 'presentation-input-area': isPresentationMode }" @submit.prevent="submit">
         <template v-if="isPresentationMode">
@@ -379,9 +440,9 @@ async function submit() {
       </form>
     </section>
 
-    <p v-if="errorMessage" class="message error-message" role="alert">{{ errorMessage }}</p>
+    <p v-if="isInputPage && errorMessage" class="message error-message" role="alert">{{ errorMessage }}</p>
 
-    <section v-if="result" class="result-area" aria-live="polite">
+    <section v-if="isResultPage && result" class="result-area" aria-live="polite">
       <div v-if="result.insufficiency_notice" class="message notice-message">
         <strong>资料提示</strong>
         <span>{{ result.insufficiency_notice }}</span>
@@ -522,7 +583,7 @@ async function submit() {
       </section>
     </section>
 
-    <footer>
+    <footer v-if="!isHomePage">
       {{ isPresentationMode
         ? '问题仅依据本次提交的汇报材料生成 · 生成结果用于辅助学习'
         : '课程内容由现有PPT知识库提供依据 · 生成结果用于辅助学习' }}
