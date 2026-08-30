@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimitError  # noqa: E402
 
 from src.config import ConfigError, load_settings  # noqa: E402
+from src.course_data import CourseStore  # noqa: E402
 from src.rag_service import ModelOutputError, RAGResult, RAGService  # noqa: E402
 from src.retriever import relevance_label  # noqa: E402
 from src.source_mapper import OriginalSourceRetriever, SourcePageMapper  # noqa: E402
@@ -94,6 +95,7 @@ def run_once(
     answer: str | None,
     top_k: int,
     source_mapper: SourcePageMapper,
+    course_id: str,
 ) -> None:
     started_at = perf_counter()
     try:
@@ -120,11 +122,11 @@ def interactive(service: RAGService, top_k: int, source_mapper: SourcePageMapper
             print("已退出。")
             return
         if choice == "1":
-            run_once(service, "question_optimize", input("请输入学生问题：").strip(), None, top_k, source_mapper)
+            run_once(service, "question_optimize", input("请输入学生问题：").strip(), None, top_k, source_mapper, "default")
         elif choice == "2":
             question = input("请输入问题：").strip()
             answer = input("请输入学生回答：").strip()
-            run_once(service, "answer_evaluate", question, answer, top_k, source_mapper)
+            run_once(service, "answer_evaluate", question, answer, top_k, source_mapper, "default")
         else:
             print("无效选项，请输入 0、1 或 2。")
 
@@ -135,6 +137,7 @@ def build_parser(default_top_k: int) -> argparse.ArgumentParser:
     parser.add_argument("--question", help="学生问题。")
     parser.add_argument("--answer", help="学生回答，仅 answer_evaluate 模式需要。")
     parser.add_argument("--top-k", type=int, default=default_top_k, help="检索课程片段数量。")
+    parser.add_argument("--course-id", default=None, help="课程 ID；当前仅支持 default。未传时兼容使用 default。")
     return parser
 
 
@@ -147,6 +150,12 @@ def main() -> int:
     try:
         settings = load_settings()
         args = build_parser(settings.default_top_k).parse_args()
+        course_id = args.course_id or "default"
+        if args.course_id is None:
+            print("提示：未传入 --course-id，当前兼容使用 default。")
+        if course_id != "default":
+            raise ValueError("该课程知识库尚未构建")
+        CourseStore().ensure_default_course()
         if args.top_k <= 0:
             raise ValueError("--top-k 必须大于 0。")
         service = RAGService(settings)
@@ -155,7 +164,7 @@ def main() -> int:
         if args.mode:
             if not args.question:
                 raise ValueError("命令行模式必须提供 --question。")
-            run_once(service, args.mode, args.question, args.answer, args.top_k, source_mapper)
+            run_once(service, args.mode, args.question, args.answer, args.top_k, source_mapper, course_id)
         else:
             interactive(service, args.top_k, source_mapper)
         return 0

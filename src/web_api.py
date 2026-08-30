@@ -7,7 +7,7 @@ from tempfile import NamedTemporaryFile
 from threading import Lock
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from openai import (
     APIConnectionError,
@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pptx import Presentation
 
 from src.config import ConfigError, Settings, load_settings
-from src.course_data import router as course_router
+from src.course_data import CourseStore, get_course_store, router as course_router
 from src.material_parser import (
     SUPPORTED_MATERIAL_TYPES,
     MaterialParseError,
@@ -57,10 +57,12 @@ OPTIMIZED_QUESTION_LEVELS = (
 
 
 class QuestionOptimizeRequest(BaseModel):
+    course_id: str
     question: str
 
 
 class AnswerEvaluateRequest(BaseModel):
+    course_id: str
     question: str
     student_answer: str
 
@@ -203,6 +205,14 @@ def _validate_input(value: str, field_name: str) -> str:
     return cleaned
 
 
+def _require_supported_course(course_id: str, store: CourseStore) -> None:
+    course = store.get(course_id)
+    if course is None:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    if course_id != "default":
+        raise HTTPException(status_code=400, detail="该课程知识库尚未构建")
+
+
 def _add_optimized_question_levels(data: dict[str, object]) -> dict[str, object]:
     optimized_questions = data.get("optimized_questions")
     if not isinstance(optimized_questions, list) or len(optimized_questions) != 3:
@@ -270,7 +280,11 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/question-optimize", response_model=QuestionOptimizeResponse)
-def question_optimize(request: QuestionOptimizeRequest) -> dict[str, object]:
+def question_optimize(
+    request: QuestionOptimizeRequest,
+    course_store: CourseStore = Depends(get_course_store),
+) -> dict[str, object]:
+    _require_supported_course(request.course_id, course_store)
     question = _validate_input(request.question, "问题")
     try:
         runtime = _get_runtime()
@@ -287,7 +301,11 @@ def question_optimize(request: QuestionOptimizeRequest) -> dict[str, object]:
 
 
 @app.post("/api/answer-evaluate")
-def answer_evaluate(request: AnswerEvaluateRequest) -> dict[str, object]:
+def answer_evaluate(
+    request: AnswerEvaluateRequest,
+    course_store: CourseStore = Depends(get_course_store),
+) -> dict[str, object]:
+    _require_supported_course(request.course_id, course_store)
     question = _validate_input(request.question, "问题")
     student_answer = _validate_input(request.student_answer, "学生回答")
     try:
@@ -391,6 +409,7 @@ async def _parse_uploaded_material(upload: UploadFile) -> tuple[ParsedMaterial, 
     description="使用multipart/form-data提交材料；files最多10个，可与text单独或同时提供。",
 )
 async def presentation_questions(
+    course_id: Annotated[str, Form(description="当前仅支持 default")],
     files: Annotated[
         list[UploadFile] | None,
         File(description="可选；最多10个PPTX、DOCX、Markdown或TXT文件；单文件50MB、合计100MB；PPTX单个最多40页"),
@@ -399,7 +418,9 @@ async def presentation_questions(
         str | None,
         Form(description="可选；粘贴纯文本；可与files同时提交，合并后最多30000字符"),
     ] = None,
+    course_store: CourseStore = Depends(get_course_store),
 ) -> dict[str, object]:
+    _require_supported_course(course_id, course_store)
     uploads = files or []
     if not uploads and (text is None or not text.strip()):
         raise HTTPException(

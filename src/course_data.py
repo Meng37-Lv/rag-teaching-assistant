@@ -78,6 +78,7 @@ class CourseStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+        self.ensure_default_course()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -102,6 +103,25 @@ class CourseStore:
                     status TEXT NOT NULL CHECK(status IN ('draft', 'building', 'ready', 'failed'))
                 )"""
             )
+
+    def ensure_default_course(self) -> Course:
+        """Create the built-in course once; its knowledge sources remain global and read-only."""
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO courses
+                   (id, name, description, grade_level, teaching_goal, created_at, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "default",
+                    "默认课程",
+                    "关联现有全局课程资料",
+                    "",
+                    "",
+                    datetime.now(timezone.utc).isoformat(),
+                    "ready",
+                ),
+            )
+        return self.get("default")  # type: ignore[return-value]
 
     @staticmethod
     def _course(row: sqlite3.Row) -> Course:

@@ -29,6 +29,47 @@ class CourseApiTests(unittest.TestCase):
         self.assertEqual(course["status"], "draft")
         self.assertTrue(course["id"])
 
+    def test_default_course_is_created_idempotently(self) -> None:
+        first = self.store.get("default")
+        self.store.ensure_default_course()
+        self.store.ensure_default_course()
+        defaults = [course for course in self.store.list() if course.id == "default"]
+        self.assertIsNotNone(first)
+        self.assertEqual(len(defaults), 1)
+        self.assertEqual(defaults[0].status, "ready")
+
+    def test_teaching_routes_require_supported_course_id(self) -> None:
+        for path, payload in (
+            ("/api/question-optimize", {"question": "问题"}),
+            ("/api/answer-evaluate", {"question": "问题", "student_answer": "回答"}),
+        ):
+            self.assertEqual(self.client.post(path, json=payload).status_code, 422)
+            payload["course_id"] = "missing"
+            self.assertEqual(self.client.post(path, json=payload).status_code, 404)
+        self.assertEqual(
+            self.client.post("/api/presentation-questions", data={"course_id": "missing", "text": "材料"}).status_code,
+            404,
+        )
+
+    def test_non_default_course_is_rejected_by_teaching_routes(self) -> None:
+        course = self.client.post("/api/courses", json={"name": "尚未构建"}).json()
+        course_id = course["id"]
+        self.assertEqual(
+            self.client.post("/api/question-optimize", json={"course_id": course_id, "question": "问题"}).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/answer-evaluate",
+                json={"course_id": course_id, "question": "问题", "student_answer": "回答"},
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.post("/api/presentation-questions", data={"course_id": course_id, "text": "材料"}).status_code,
+            400,
+        )
+
     def test_field_validation(self) -> None:
         self.assertEqual(self.client.post("/api/courses", json={"name": "  "}).status_code, 422)
         self.assertEqual(self.client.post("/api/courses", json={"name": "x" * 101}).status_code, 422)
@@ -42,7 +83,8 @@ class CourseApiTests(unittest.TestCase):
         self.client.post("/api/courses", json={"name": "课程二"})
         listed = self.client.get("/api/courses")
         self.assertEqual(listed.status_code, 200)
-        self.assertEqual(len(listed.json()), 2)
+        self.assertEqual(len(listed.json()), 3)
+        self.assertEqual(sum(item["id"] == "default" for item in listed.json()), 1)
         detail = self.client.get(f"/api/courses/{created['id']}")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["id"], created["id"])
