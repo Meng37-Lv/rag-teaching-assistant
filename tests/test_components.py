@@ -14,7 +14,12 @@ def valid_question_data() -> dict[str, object]:
     return {
         "task_type": "question_optimize",
         "original_question": "什么是深度学习？",
-        "question_diagnosis": "问题范围较宽。",
+        "question_evaluation": {
+            "score": 68,
+            "level": "简单",
+            "evaluation": "该问题属于概念识别类，范围较宽且主要要求定义复述。",
+            "suggestion": "可限定课程场景，并加入机制或应用条件的追问。",
+        },
         "optimized_questions": [
             {"question": f"优化问题{i}", "improvement_focus": "改进方向"}
             for i in range(1, 4)
@@ -57,6 +62,26 @@ class ComponentTests(unittest.TestCase):
         data = valid_question_data()
         data["optimized_questions"] = data["optimized_questions"][:2]
         with self.assertRaisesRegex(ValueError, "恰好包含 3 项"):
+            validate_output(data, "question_optimize", ["第270页"])
+
+    def test_rejects_evaluation_level_that_does_not_match_score(self) -> None:
+        data = valid_question_data()
+        data["question_evaluation"]["score"] = 91
+        with self.assertRaisesRegex(ValueError, "必须与分数对应为“深度型”"):
+            validate_output(data, "question_optimize", ["第270页"])
+
+    def test_accepts_all_question_evaluation_boundaries(self) -> None:
+        for score, level in [(60, "简单"), (75, "简单"), (76, "思考型"), (90, "思考型"), (91, "深度型"), (100, "深度型")]:
+            with self.subTest(score=score):
+                data = valid_question_data()
+                data["question_evaluation"]["score"] = score
+                data["question_evaluation"]["level"] = level
+                validate_output(data, "question_optimize", ["第270页"])
+
+    def test_rejects_legacy_question_diagnosis(self) -> None:
+        data = valid_question_data()
+        data["question_diagnosis"] = "旧字段不应再出现。"
+        with self.assertRaisesRegex(ValueError, "不允许的字段.*question_diagnosis"):
             validate_output(data, "question_optimize", ["第270页"])
 
 

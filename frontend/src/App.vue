@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { evaluateAnswer, generatePresentationQuestions, optimizeQuestion } from './api.js'
+import { evaluateAnswer, generatePresentationQuestions, optimizeQuestion } from './api.ts'
 
 const page = ref('home')
 const mode = ref(null)
@@ -25,6 +25,11 @@ const QUESTION_LEVEL_CLASSES = {
   easy: 'level-easy',
   medium: 'level-medium',
   hard: 'level-hard',
+}
+const EVALUATION_LEVEL_CLASSES = {
+  简单: 'evaluation-simple',
+  思考型: 'evaluation-thinking',
+  深度型: 'evaluation-deep',
 }
 const PRESENTATION_FILE_TYPES = ['.pptx', '.docx', '.md', '.txt']
 const MAX_PRESENTATION_FILES = 10
@@ -108,6 +113,14 @@ const presentationQuestions = computed(() => {
   if (!Array.isArray(result.value?.questions)) return []
   return [...result.value.questions].sort((left, right) => Number(left.score) - Number(right.score))
 })
+const presentationQuestionGroups = computed(() => [
+  { level: 'easy', label: '简单', score: 60 },
+  { level: 'medium', label: '中等', score: 80 },
+  { level: 'hard', label: '困难', score: 100 },
+].map((group) => ({
+  ...group,
+  questions: presentationQuestions.value.filter((item) => item.level === group.level),
+})))
 const canSubmit = computed(() => {
   if (isPresentationMode.value) {
     return (presentationFiles.value.length > 0 || hasPresentationText.value)
@@ -453,25 +466,27 @@ async function submit() {
           <h2>课程汇报提问</h2>
           <div class="level-question-list">
             <article
-              v-for="(item, index) in presentationQuestions"
-              :key="`${item.level}-${item.question}`"
+              v-for="(group, index) in presentationQuestionGroups"
+              :key="group.level"
               class="level-question-item"
             >
               <button
                 type="button"
                 class="level-selector"
                 :class="[
-                  QUESTION_LEVEL_CLASSES[item.level],
+                  QUESTION_LEVEL_CLASSES[group.level],
                   { revealed: isPresentationQuestionRevealed(index) },
                 ]"
                 :aria-expanded="isPresentationQuestionRevealed(index)"
                 @click="togglePresentationQuestion(index)"
               >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.score }}分</strong>
+                <span>{{ group.label }} · 3题</span>
+                <strong>{{ group.score }}分</strong>
               </button>
               <div v-if="isPresentationQuestionRevealed(index)" class="level-question-content">
-                <p>{{ item.question }}</p>
+                <ol class="presentation-group-list">
+                  <li v-for="item in group.questions" :key="item.question">{{ item.question }}</li>
+                </ol>
               </div>
             </article>
           </div>
@@ -479,9 +494,28 @@ async function submit() {
       </template>
 
       <template v-if="result.task_type === 'question_optimize'">
-        <section class="result-section diagnosis-section">
-          <h2>问题诊断</h2>
-          <p class="lead-text">{{ formatCourseReferences(result.question_diagnosis) }}</p>
+        <section
+          class="result-section evaluation-section"
+          :class="EVALUATION_LEVEL_CLASSES[result.question_evaluation.level]"
+        >
+          <h2>问题评价</h2>
+          <div class="evaluation-summary">
+            <strong class="evaluation-score">{{ result.question_evaluation.score }}</strong>
+            <div>
+              <span class="evaluation-score-unit">分</span>
+              <strong class="evaluation-level">{{ result.question_evaluation.level }}</strong>
+            </div>
+          </div>
+          <div class="evaluation-details">
+            <div>
+              <strong>评价</strong>
+              <p>{{ formatCourseReferences(result.question_evaluation.evaluation) }}</p>
+            </div>
+            <div>
+              <strong>建议</strong>
+              <p>{{ formatCourseReferences(result.question_evaluation.suggestion) }}</p>
+            </div>
+          </div>
         </section>
 
         <section class="result-section">

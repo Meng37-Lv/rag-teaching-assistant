@@ -4,7 +4,7 @@
 
 核心功能：
 
-- `question_optimize`：诊断学生问题，生成 3 个优化问题和 2 个深度思考问题；
+- `question_optimize`：评价学生问题（60-100分及分级），生成 3 个优化问题和 2 个深度思考问题；
 - `answer_evaluate`：评价学生答案，指出值得肯定、需要改进和改进建议，并生成优化答案。
 
 ## 系统架构
@@ -29,7 +29,7 @@ DeepSeek Chat Completions API
 AI-teaching-assistant/
 ├── frontend/                # Vue 3 + Vite 单页前端
 │   ├── src/App.vue          # 页面展示与交互
-│   ├── src/api.js           # 后端 API 请求
+│   ├── src/api.ts           # 带类型约束的后端 API 请求
 │   └── vite.config.js       # 本地开发地址与端口
 ├── src/
 │   ├── web_api.py           # FastAPI 应用入口

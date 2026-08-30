@@ -111,22 +111,32 @@ def validate_output(
         fields = [
             "task_type",
             "original_question",
-            "question_diagnosis",
+            "question_evaluation",
             "optimized_questions",
             "deep_questions",
             "course_basis",
             "insufficiency_notice",
         ]
         _require_fields(data, fields)
-        for name in ["original_question", "question_diagnosis", "insufficiency_notice"]:
+        if set(data) != set(fields):
+            extra = sorted(set(data) - set(fields))
+            raise ValueError(f"question_optimize 包含不允许的字段：{', '.join(extra)}")
+        for name in ["original_question", "insufficiency_notice"]:
             _require_string(data, name)
-        diagnosis_sentences = [
-            sentence for sentence in re.split(r"[。！？!?]+", data["question_diagnosis"]) if sentence.strip()
-        ]
-        if len(diagnosis_sentences) > 2:
-            raise ValueError("question_diagnosis 最多包含 2 句话。")
-        if len(data["question_diagnosis"]) > 120:
-            raise ValueError("question_diagnosis 不得超过 120 字。")
+        evaluation = data["question_evaluation"]
+        evaluation_fields = {"score", "level", "evaluation", "suggestion"}
+        if not isinstance(evaluation, dict) or set(evaluation) != evaluation_fields:
+            raise ValueError("question_evaluation 必须且只能包含 score、level、evaluation、suggestion。")
+        score = evaluation["score"]
+        if type(score) is not int or not 60 <= score <= 100:
+            raise ValueError("question_evaluation.score 必须是60至100的整数。")
+        expected_level = "简单" if score <= 75 else "思考型" if score <= 90 else "深度型"
+        if evaluation["level"] != expected_level:
+            raise ValueError(f"question_evaluation.level 必须与分数对应为“{expected_level}”。")
+        for name in ["evaluation", "suggestion"]:
+            value = evaluation[name]
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"question_evaluation.{name} 必须是非空字符串。")
         optimized = data["optimized_questions"]
         deep = data["deep_questions"]
         if not isinstance(optimized, list) or len(optimized) != 3:

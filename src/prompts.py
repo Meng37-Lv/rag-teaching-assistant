@@ -9,7 +9,11 @@ QUESTION_SYSTEM_PROMPT = """你是课程学习中的教学辅助助手，而不�
 
 请保留学生原问题的核心意图，不要把它替换成完全不同的话题。不要直接替学生回答原问题，重点是帮助学生学会更好地提问。
 
-请生成不超过2句话且最多120字的原问题诊断、恰好3个优化后的问题和恰好2个递进式深度思考问题。每个优化问题和深度问题最多100字，improvement_focus 和 thinking_dimension 各最多40字。三个优化问题应体现不同方向：明确概念边界或关键术语；补充机制、原因、过程或条件；联系课程案例、应用场景、比较关系或局限性。两个深度问题必须更进一步，优先体现机制分析、比较权衡、应用迁移、局限风险、条件或评价。难度应适合当前课程学生。所有说明应自然、具体，避免重复课程上下文。
+请先评价学生原问题，再生成恰好3个优化后的问题和恰好2个递进式深度思考问题。问题评价必须包含 score、level、evaluation、suggestion：score 是60至100的整数；level 必须由分数唯一确定，60-75为“简单”、76-90为“思考型”、91-100为“深度型”；evaluation 要说明原问题属于哪一类及其依据；suggestion 要说明如何进一步完善或深化。
+
+评分必须综合判断问题的明确性、与课程内容的关联程度、所需推理层次和开放性，不得只看问题字数或因问题较长就机械给高分。简单问题通常偏概念识别、范围较宽或只需直接提取信息；思考型问题通常要求解释原因、机制、条件、比较或应用；深度型问题通常要求多因素权衡、迁移论证、方案设计、批判评价或开放探索。评价原问题后，仍须保留并输出原有的3个优化问题和2个深度问题。
+
+每个优化问题和深度问题最多100字，improvement_focus 和 thinking_dimension 各最多40字。三个优化问题应体现不同方向：明确概念边界或关键术语；补充机制、原因、过程或条件；联系课程案例、应用场景、比较关系或局限性。两个深度问题必须更进一步，优先体现机制分析、比较权衡、应用迁移、局限风险、条件或评价。难度应适合当前课程学生。所有说明应自然、具体，避免重复课程上下文。
 
 course_basis 最多2条，每条 reason 最多60字。source 只能逐字使用程序提供的“允许使用的来源标识”，不得组合、改写或虚构来源。不得编造PPT页码、章节标题、课程案例、文献或数据。不得输出与任务无关的客套话。
 
@@ -34,7 +38,12 @@ strengths、issues、improvement_suggestions 各最多3项。优化后的回答�
 QUESTION_SCHEMA = {
     "task_type": "question_optimize",
     "original_question": "学生原始问题",
-    "question_diagnosis": "对原问题的简洁诊断",
+    "question_evaluation": {
+        "score": 60,
+        "level": "简单",
+        "evaluation": "说明原问题所属类型及判断依据",
+        "suggestion": "说明如何进一步完善或深化",
+    },
     "optimized_questions": [
         {"question": "优化问题1", "improvement_focus": "该问题主要改善了什么"},
         {"question": "优化问题2", "improvement_focus": "该问题主要改善了什么"},
@@ -140,7 +149,8 @@ def build_truncation_retry_messages(
 ) -> list[dict[str, str]]:
     if task_type == "question_optimize":
         compact_rules = """上一次响应因输出长度限制被截断。请重新执行上面的原始任务，不要续写残缺JSON，并遵守以下长度限制：
-- 问题诊断不超过120字；
+- 先输出结构完整的问题评价；score为60-100整数，level与分数区间严格对应；
+- evaluation说明所属类型和依据，suggestion说明如何完善或深化；不得按问题长度机械打分；
 - 每个优化问题和深度问题不超过100字；
 - improvement_focus 和 thinking_dimension 各不超过40字；
 - course_basis 最多2条，每条 reason 不超过60字；

@@ -33,7 +33,7 @@ MEMORY_QUESTION_PATTERNS = (
 
 REPORT_QUESTION_SYSTEM_PROMPT = """你是课程汇报结束后的教师或评委提问助手。你只能依据本次提供的材料文字生成问题，不得检索、引用或假装使用课程PPT知识库、外部资料和常识。
 
-你的任务是检验学生对汇报内容、研究领域和行业背景的真实掌握，而不是考查对材料原文的记忆。必须生成恰好3道可供老师或评委直接追问的问题，顺序固定为：简单60分、中等80分、困难100分。
+你的任务是检验学生对汇报内容、研究领域和行业背景的真实掌握，而不是考查对材料原文的记忆。必须生成恰好9道可供老师或评委直接追问的问题：简单60分、中等80分、困难100分各3道，顺序固定为3道简单、3道中等、3道困难。同一级的3道题难度必须一致，但考查角度必须不同，不得只是同义改写。
 
 简单60分：明确引用材料中的一个具体方案、数据、指标或结论作为切入点，追问其选择理由、必要性、适用条件，或与替代方案的区别。禁止直接问“是什么”“有哪些”“由什么组成”或“使用哪个数据集”。
 
@@ -49,24 +49,24 @@ REPORT_QUESTION_SYSTEM_PROMPT = """你是课程汇报结束后的教师或评委
 
 REPORT_QUESTION_SCHEMA = {
     "questions": [
-        {
+        *[{
             "level": "easy",
             "label": "简单",
             "score": 60,
-            "question": "简单追问",
-        },
-        {
+            "question": f"简单追问{i}",
+        } for i in range(1, 4)],
+        *[{
             "level": "medium",
             "label": "中等",
             "score": 80,
-            "question": "中等追问",
-        },
-        {
+            "question": f"中等追问{i}",
+        } for i in range(1, 4)],
+        *[{
             "level": "hard",
             "label": "困难",
             "score": 100,
-            "question": "困难追问",
-        },
+            "question": f"困难追问{i}",
+        } for i in range(1, 4)],
     ]
 }
 
@@ -150,11 +150,13 @@ def validate_report_questions(data: dict[str, Any]) -> None:
     if set(data) != {"questions"}:
         raise ValueError("JSON顶层只能包含 questions 字段。")
     questions = data["questions"]
-    if not isinstance(questions, list) or len(questions) != 3:
-        raise ValueError("questions 必须恰好包含3项。")
+    if not isinstance(questions, list) or len(questions) != 9:
+        raise ValueError("questions 必须恰好包含9项（每个难度3题）。")
 
     required_fields = {"level", "label", "score", "question"}
-    for index, (item, expected) in enumerate(zip(questions, QUESTION_LEVELS), start=1):
+    expected_levels = tuple(level for level in QUESTION_LEVELS for _ in range(3))
+    seen_questions: set[str] = set()
+    for index, (item, expected) in enumerate(zip(questions, expected_levels), start=1):
         if not isinstance(item, dict) or set(item) != required_fields:
             raise ValueError(f"第{index}题字段不完整或包含额外字段。")
         level, label, score = expected
@@ -164,6 +166,10 @@ def validate_report_questions(data: dict[str, Any]) -> None:
             raise ValueError(f"第{index}题 question 必须是非空字符串。")
         if len(item["question"]) > 60:
             raise ValueError(f"第{index}题 question 超过60字。")
+        normalized_question = item["question"].strip()
+        if normalized_question in seen_questions:
+            raise ValueError(f"第{index}题与其他题重复；同级3题必须考查不同角度。")
+        seen_questions.add(normalized_question)
         matched_pattern = next(
             (pattern for pattern in MEMORY_QUESTION_PATTERNS if pattern in item["question"]),
             None,
@@ -191,7 +197,7 @@ class ReportQuestionService:
         started_at = perf_counter()
         llm_started_at = perf_counter()
         messages = build_report_question_messages(material)
-        first_response = self.llm.complete(messages, max_tokens=700)
+        first_response = self.llm.complete(messages, max_tokens=1600)
         response = first_response
         retried = False
 
@@ -202,7 +208,7 @@ class ReportQuestionService:
             retry_instruction = self._build_retry_instruction(response, first_error)
             response = self.llm.complete(
                 [*messages, {"role": "user", "content": retry_instruction}],
-                max_tokens=800,
+                max_tokens=2000,
             )
             try:
                 data = self._parse_and_validate(response)
@@ -245,4 +251,4 @@ class ReportQuestionService:
         else:
             detail = f"上一次输出未通过JSON校验：{error}。请重新执行原始任务。"
         return f"""{detail}
-这是唯一一次重试。仍须固定输出简单60分、中等80分、困难100分三题；每题须引用材料中的具体内容作为切入点，并要求解释、比较、论证或方案设计；不得生成“是什么、有哪些、由什么组成、使用哪个数据集”等记忆题；question各不超过60字；不得输出answer_angle；只依据材料；只输出完整合法JSON。"""
+这是唯一一次重试。仍须固定输出9题，顺序为简单60分3题、中等80分3题、困难100分3题；同级3题难度一致且考查角度不同；每题须引用材料中的具体内容作为切入点，并要求解释、比较、论证或方案设计；不得生成“是什么、有哪些、由什么组成、使用哪个数据集”等记忆题；question各不超过60字；不得输出answer_angle；只依据材料；只输出完整合法JSON。"""

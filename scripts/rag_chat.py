@@ -31,7 +31,10 @@ def print_retrieval(result: RAGResult, source_mapper: SourcePageMapper) -> None:
 def print_readable(data: dict[str, Any]) -> None:
     print("\n3. 格式化后的易读结果")
     if data["task_type"] == "question_optimize":
-        print(f"原问题诊断：{data['question_diagnosis']}")
+        evaluation = data["question_evaluation"]
+        print(f"问题评价：{evaluation['score']}分 · {evaluation['level']}")
+        print(f"评价：{evaluation['evaluation']}")
+        print(f"建议：{evaluation['suggestion']}")
         print("优化问题：")
         for index, item in enumerate(data["optimized_questions"], start=1):
             print(f"  {index}. {item['question']}")

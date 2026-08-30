@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +17,7 @@ from openai import (
     PermissionDeniedError,
     RateLimitError,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pptx import Presentation
 
 from src.config import ConfigError, Settings, load_settings
@@ -62,6 +62,75 @@ class QuestionOptimizeRequest(BaseModel):
 class AnswerEvaluateRequest(BaseModel):
     question: str
     student_answer: str
+
+
+class StrictResponseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CourseBasisItem(StrictResponseModel):
+    source: str
+    reason: str
+
+
+class QuestionEvaluation(StrictResponseModel):
+    score: int = Field(ge=60, le=100)
+    level: Literal["简单", "思考型", "深度型"]
+    evaluation: str = Field(min_length=1)
+    suggestion: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_level_matches_score(self) -> "QuestionEvaluation":
+        expected = "简单" if self.score <= 75 else "思考型" if self.score <= 90 else "深度型"
+        if self.level != expected:
+            raise ValueError(f"level 必须与 score 对应为“{expected}”")
+        return self
+
+
+class OptimizedQuestionItem(StrictResponseModel):
+    question: str
+    improvement_focus: str
+    level: Literal["easy", "medium", "hard"]
+    label: Literal["简单", "中等", "困难"]
+    score: Literal[60, 80, 100]
+
+
+class DeepQuestionItem(StrictResponseModel):
+    question: str
+    thinking_dimension: str
+
+
+class QuestionOptimizeResponse(StrictResponseModel):
+    task_type: Literal["question_optimize"]
+    original_question: str
+    question_evaluation: QuestionEvaluation
+    optimized_questions: list[OptimizedQuestionItem] = Field(min_length=3, max_length=3)
+    deep_questions: list[DeepQuestionItem] = Field(min_length=2, max_length=2)
+    course_basis: list[CourseBasisItem] = Field(max_length=2)
+    insufficiency_notice: str
+
+
+class PresentationQuestionItem(StrictResponseModel):
+    level: Literal["easy", "medium", "hard"]
+    label: Literal["简单", "中等", "困难"]
+    score: Literal[60, 80, 100]
+    question: str = Field(min_length=1, max_length=60)
+
+
+class PresentationQuestionsResponse(StrictResponseModel):
+    questions: list[PresentationQuestionItem] = Field(min_length=9, max_length=9)
+
+    @model_validator(mode="after")
+    def validate_three_questions_per_level(self) -> "PresentationQuestionsResponse":
+        expected = [
+            (level, label, score)
+            for level, label, score in OPTIMIZED_QUESTION_LEVELS
+            for _ in range(3)
+        ]
+        actual = [(item.level, item.label, item.score) for item in self.questions]
+        if actual != expected:
+            raise ValueError("questions 必须依次包含简单、中等、困难各3题")
+        return self
 
 
 @dataclass(frozen=True)
@@ -198,7 +267,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/question-optimize")
+@app.post("/api/question-optimize", response_model=QuestionOptimizeResponse)
 def question_optimize(request: QuestionOptimizeRequest) -> dict[str, object]:
     question = _validate_input(request.question, "问题")
     try:
@@ -315,6 +384,7 @@ async def _parse_uploaded_material(upload: UploadFile) -> tuple[ParsedMaterial, 
 
 @app.post(
     "/api/presentation-questions",
+    response_model=PresentationQuestionsResponse,
     summary="根据汇报材料生成分级问题",
     description="使用multipart/form-data提交材料；files最多10个，可与text单独或同时提供。",
 )
