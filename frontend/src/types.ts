@@ -51,3 +51,34 @@ export interface AnswerEvaluateResponse {
   task_type: 'answer_evaluate'
   [key: string]: unknown
 }
+
+export interface Course {
+  id: string
+  name: string
+  description: string
+  grade_level: string
+  teaching_goal: string
+  created_at: string
+  status: 'draft' | 'building' | 'ready' | 'failed'
+}
+
+export interface CourseMaterial {
+  id: string
+  filename: string
+  size: number
+  uploaded_at: string
+}
+
+export interface CourseBuildStatus {
+  course_id: string
+  status: Course['status']
+  error: string | null
+}
+
+export interface CourseSearchResult {
+  chunk_id: number
+  text: string
+  page: number | null
+  score: number
+  source: string
+}
