@@ -22,6 +22,7 @@ from pptx import Presentation
 
 from src.config import ConfigError, Settings, load_settings
 from src.course_data import CourseStore, get_course_store, router as course_router
+from src.course_materials import router as course_material_router
 from src.material_parser import (
     SUPPORTED_MATERIAL_TYPES,
     MaterialParseError,
@@ -157,6 +158,7 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 app.include_router(course_router)
+app.include_router(course_material_router)
 
 _runtime: WebRuntime | None = None
 _runtime_lock = Lock()

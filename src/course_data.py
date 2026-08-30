@@ -179,6 +179,15 @@ class CourseStore:
             cursor = connection.execute("DELETE FROM courses WHERE id = ?", (course_id,))
         return cursor.rowcount > 0
 
+    def set_status(self, course_id: str, status_value: str) -> Course | None:
+        if status_value not in COURSE_STATUSES:
+            raise ValueError("无效课程状态")
+        with self._connect() as connection:
+            cursor = connection.execute("UPDATE courses SET status = ? WHERE id = ?", (status_value, course_id))
+            if cursor.rowcount == 0:
+                return None
+        return self.get(course_id)
+
 
 _store: CourseStore | None = None
 
