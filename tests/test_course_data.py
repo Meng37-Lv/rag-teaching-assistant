@@ -37,6 +37,7 @@ class CourseApiTests(unittest.TestCase):
         self.assertIsNotNone(first)
         self.assertEqual(len(defaults), 1)
         self.assertEqual(defaults[0].status, "ready")
+        self.assertEqual(defaults[0].name, "人工智能导论")
 
     def test_teaching_routes_require_supported_course_id(self) -> None:
         for path, payload in (

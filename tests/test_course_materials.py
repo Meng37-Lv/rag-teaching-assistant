@@ -68,6 +68,13 @@ class CourseMaterialServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "尚未构建"):
             self.service.search(self.course.id, SearchRequest(query="课程"))
 
+    def test_preset_course_materials_are_read_only(self) -> None:
+        preset = self.store.get("default")
+        with self.assertRaisesRegex(Exception, "预置课程资料不可修改"):
+            self.service.upload(preset.id, self.upload("a.txt", b"x"))
+        with self.assertRaisesRegex(Exception, "预置课程资料不可修改"):
+            self.service.build(preset.id)
+
 
 if __name__ == "__main__":
     unittest.main()

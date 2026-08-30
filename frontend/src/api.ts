@@ -64,11 +64,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T
 }
 
-export function optimizeQuestion(question: string, courseId = 'default'): Promise<QuestionOptimizeResponse> {
+export function optimizeQuestion(question: string, courseId: string): Promise<QuestionOptimizeResponse> {
   return postJson<QuestionOptimizeResponse>('/api/question-optimize', { course_id: courseId, question })
 }
 
-export function evaluateAnswer(question: string, studentAnswer: string, courseId = 'default'): Promise<AnswerEvaluateResponse> {
+export function evaluateAnswer(question: string, studentAnswer: string, courseId: string): Promise<AnswerEvaluateResponse> {
   return postJson<AnswerEvaluateResponse>('/api/answer-evaluate', {
     course_id: courseId,
     question,
@@ -76,7 +76,7 @@ export function evaluateAnswer(question: string, studentAnswer: string, courseId
   })
 }
 
-export function generatePresentationQuestions(files: File[], text: string, courseId = 'default'): Promise<PresentationQuestionsResponse> {
+export function generatePresentationQuestions(files: File[], text: string, courseId: string): Promise<PresentationQuestionsResponse> {
   const cleanedText = text.trim()
   if (!files.length && !cleanedText) {
     throw new Error('请上传一个文件或输入纯文本材料。')

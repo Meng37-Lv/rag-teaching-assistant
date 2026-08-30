@@ -75,6 +75,8 @@ class CourseMaterialService:
 
     def upload(self, course_id: str, upload: UploadFile) -> MaterialInfo:
         course = self._require_course(course_id)
+        if course_id == "default":
+            raise HTTPException(status_code=400, detail="预置课程资料不可修改，如需新资料请创建课程")
         if course.status == "building":
             raise HTTPException(status_code=409, detail="课程正在构建，暂不能修改资料")
         if course.status not in {"draft", "failed", "ready"}:
@@ -99,6 +101,8 @@ class CourseMaterialService:
 
     def delete(self, course_id: str, material_id: str) -> None:
         course = self._require_course(course_id)
+        if course_id == "default":
+            raise HTTPException(status_code=400, detail="预置课程资料不可修改，如需新资料请创建课程")
         if course.status == "building":
             raise HTTPException(status_code=409, detail="课程正在构建，暂不能修改资料")
         path = next((p for p in (self._course_dir(course_id) / "source_files").glob(f"{material_id}__*") if p.is_file()), None)
@@ -110,6 +114,8 @@ class CourseMaterialService:
 
     def build(self, course_id: str) -> BuildStatus:
         course = self._require_course(course_id)
+        if course_id == "default":
+            raise HTTPException(status_code=400, detail="预置课程资料不可修改，如需新资料请创建课程")
         if course.status == "building" or not self._lock(course_id).acquire(blocking=False):
             raise HTTPException(status_code=409, detail="课程正在构建，禁止重复构建")
         try:

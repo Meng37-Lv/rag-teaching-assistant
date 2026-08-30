@@ -113,13 +113,17 @@ class CourseStore:
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     "default",
-                    "默认课程",
+                    "人工智能导论",
                     "关联现有全局课程资料",
                     "",
                     "",
                     datetime.now(timezone.utc).isoformat(),
                     "ready",
                 ),
+            )
+            connection.execute(
+                "UPDATE courses SET name = ? WHERE id = ? AND name IN (?, ?)",
+                ("人工智能导论", "default", "默认课程", ""),
             )
         return self.get("default")  # type: ignore[return-value]
 
@@ -234,6 +238,8 @@ def update_course(course_id: str, payload: CourseUpdate, store: CourseStore = De
 @router.delete("/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_course(course_id: str, store: CourseStore = Depends(get_course_store)) -> None:
     _find_or_404(course_id, store)
+    if course_id == "default":
+        raise HTTPException(status_code=400, detail="预置课程资料不可修改，如需新资料请创建课程")
     try:
         store.delete(course_id)
     except ValueError as error:
