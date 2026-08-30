@@ -26,6 +26,7 @@ from src.course_data import CourseStore, get_course_store, router as course_rout
 from src.course_materials import load_course_retriever, router as course_material_router
 from src.teaching_history import get_history_store, router as history_router
 from src.teaching_analytics import router as analytics_router
+from src.learning_report import router as learning_report_router
 from src.material_parser import (
     SUPPORTED_MATERIAL_TYPES,
     MaterialParseError,
@@ -164,6 +165,7 @@ app.include_router(course_router)
 app.include_router(course_material_router)
 app.include_router(history_router)
 app.include_router(analytics_router)
+app.include_router(learning_report_router)
 
 _runtime: WebRuntime | None = None
 _runtime_lock = Lock()

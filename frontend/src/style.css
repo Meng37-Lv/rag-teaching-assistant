@@ -390,6 +390,9 @@ textarea:focus { border-color: #27816d; background: #fff; box-shadow: 0 0 0 4px 
 .analytics-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .analytics-sections section { border: 1px solid #d8e3df; border-radius: 14px; padding: 18px; background: #fff; }
 .analytics-sections h3 { margin-top: 0; color: #173b35; } .analytics-sections ul { padding-left: 20px; color: #526d72; line-height: 1.8; }
+.report-panel { display: grid; gap: 14px; border-top: 2px solid #466d73; padding-top: 22px; }
+.report-panel h3 { margin: 0; color: #173b35; } .report-section { border: 1px solid #d8e3df; border-radius: 12px; padding: 15px; background: #fbfdfc; }
+.report-section h4 { margin: 0 0 10px; color: #176b59; } .report-section strong { color: #294f4a; } .report-section p { margin: 5px 0 0; color: #607579; line-height: 1.6; }
 .teaching-course-select { max-width: 760px; }
 .teaching-course-option { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%; border: 1px solid #d5e1dc; border-radius: 16px; padding: 18px 20px; color: #173b35; background: #fff; text-align: left; cursor: pointer; }
 .teaching-course-option:hover:not(:disabled) { border-color: #27816d; box-shadow: 0 8px 20px rgba(24,58,52,.08); }

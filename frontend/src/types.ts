@@ -113,3 +113,12 @@ export interface TeachingAnalytics {
   frequent_chapters: Array<{ value: string; count: number }>
   low_score_knowledge_points: Array<{ value: string; count: number; event_ids: string[] }>
 }
+
+export interface LearningReport {
+  course_id: string
+  created_from: string | null
+  created_to: string | null
+  record_count: number
+  generated_at: string
+  report: Record<string, Array<{ conclusion: string; evidence: string }>>
+}

@@ -5,6 +5,7 @@ import type {
   Course, CourseMaterial, CourseBuildStatus, CourseSearchResult,
   TeachingEvent, TeachingHistoryPage,
   TeachingAnalytics,
+  LearningReport,
 } from './types'
 
 const BROWSER_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
@@ -107,6 +108,7 @@ export function deleteHistoryEvent(courseId: string, eventId: string): Promise<v
 export function clearHistory(courseId: string): Promise<{ deleted: number }> { return requestJson<{ deleted: number }>(`/api/courses/${courseId}/history`, 'DELETE') }
 export function historyCsvUrl(courseId: string, params: Record<string, string | undefined> = {}): string { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value)); return `${BROWSER_API_BASE_URL}/api/courses/${courseId}/history/export.csv${query.toString() ? `?${query}` : ''}` }
 export function getAnalytics(courseId: string, params: { created_from?: string; created_to?: string } = {}): Promise<TeachingAnalytics> { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value)); return getJson<TeachingAnalytics>(`/api/courses/${courseId}/analytics${query.toString() ? `?${query}` : ''}`) }
+export function createLearningReport(courseId: string, params: { created_from?: string; created_to?: string } = {}): Promise<LearningReport> { return postJson<LearningReport>(`/api/courses/${courseId}/learning-report`, params) }
 
 async function getJson<T>(path: string): Promise<T> { return requestJson<T>(path, 'GET') }
 async function requestJson<T>(path: string, method: string, body?: object): Promise<T> {
