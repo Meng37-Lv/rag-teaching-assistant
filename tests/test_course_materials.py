@@ -27,7 +27,9 @@ class CourseMaterialServiceTests(unittest.TestCase):
 
     def test_format_and_size_validation(self) -> None:
         with self.assertRaisesRegex(Exception, "仅支持"):
-            self.service.upload(self.course.id, self.upload("bad.pdf", b"x"))
+            self.service.upload(self.course.id, self.upload("bad.xls", b"x"))
+        pdf = self.service.upload(self.course.id, self.upload("empty.pdf", b"not-a-pdf"))
+        self.assertTrue(pdf.id)
         with self.assertRaisesRegex(Exception, "100MB"):
             self.service.upload(self.course.id, self.upload("big.txt", b"x" * (100 * 1024 * 1024 + 1)))
 

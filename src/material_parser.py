@@ -5,6 +5,7 @@ from pathlib import Path
 
 from docx import Document
 from pptx import Presentation
+from pypdf import PdfReader
 
 
 SUPPORTED_MATERIAL_TYPES = {
@@ -12,6 +13,7 @@ SUPPORTED_MATERIAL_TYPES = {
     ".docx": "DOCX",
     ".md": "Markdown",
     ".txt": "TXT",
+    ".pdf": "PDF",
 }
 
 
@@ -44,6 +46,8 @@ def parse_material_file(file_path: str | Path) -> ParsedMaterial:
             extracted_text = _extract_pptx(path)
         elif path.suffix.lower() == ".docx":
             extracted_text = _extract_docx(path)
+        elif path.suffix.lower() == ".pdf":
+            extracted_text = "\n".join((page.extract_text() or "").strip() for page in PdfReader(str(path)).pages).strip()
         else:
             extracted_text = _extract_text_file(path)
     except MaterialParseError:

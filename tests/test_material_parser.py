@@ -97,6 +97,14 @@ class MaterialParserTests(unittest.TestCase):
         )
         self.assertNotIn(str(path), str(context.exception))
 
+    def test_corrupted_pdf_returns_safe_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "empty.pdf"
+            path.write_bytes(b"not-a-pdf")
+            with self.assertRaises(MaterialParseError) as context:
+                parse_material_file(path)
+        self.assertEqual(str(context.exception), "材料解析失败，请确认文件未损坏且格式正确。")
+
 
 if __name__ == "__main__":
     unittest.main()

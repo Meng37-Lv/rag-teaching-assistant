@@ -64,7 +64,7 @@ const EVALUATION_LEVEL_CLASSES = {
   思考型: 'evaluation-thinking',
   深度型: 'evaluation-deep',
 }
-const PRESENTATION_FILE_TYPES = ['.pptx', '.docx', '.md', '.txt']
+const PRESENTATION_FILE_TYPES = ['.pptx', '.docx', '.md', '.txt', '.pdf']
 const MAX_PRESENTATION_FILES = 10
 const MAX_PRESENTATION_FILE_BYTES = 50 * 1024 * 1024
 const MAX_PRESENTATION_TOTAL_FILE_BYTES = 100 * 1024 * 1024
@@ -479,7 +479,7 @@ async function submit() {
               class="visually-hidden"
               type="file"
               multiple
-              accept=".pptx,.docx,.md,.txt"
+accept=".pptx,.docx,.md,.txt,.pdf"
               @change="handleFileInput"
             />
 

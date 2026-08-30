@@ -103,10 +103,13 @@ class CourseStore:
                     status TEXT NOT NULL CHECK(status IN ('draft', 'building', 'ready', 'failed'))
                 )"""
             )
+            connection.execute("CREATE TABLE IF NOT EXISTS initialization_flags (name TEXT PRIMARY KEY)")
 
     def ensure_default_course(self) -> Course:
         """Create the built-in course once; its knowledge sources remain global and read-only."""
         with self._connect() as connection:
+            if connection.execute("SELECT 1 FROM initialization_flags WHERE name='default_course'").fetchone():
+                return self.get("default")  # type: ignore[return-value]
             connection.execute(
                 """INSERT OR IGNORE INTO courses
                    (id, name, description, grade_level, teaching_goal, created_at, status)
@@ -125,6 +128,7 @@ class CourseStore:
                 "UPDATE courses SET name = ? WHERE id = ? AND name IN (?, ?)",
                 ("人工智能导论", "default", "默认课程", ""),
             )
+            connection.execute("INSERT OR IGNORE INTO initialization_flags(name) VALUES ('default_course')")
         return self.get("default")  # type: ignore[return-value]
 
     @staticmethod
@@ -177,11 +181,21 @@ class CourseStore:
         return False
 
     def delete(self, course_id: str) -> bool:
+        import shutil
         if self.has_materials(course_id) or self.has_history(course_id):
             raise ValueError("课程存在关联资料或历史记录，不能删除")
+        course_dir = PROJECT_ROOT / "storage" / "courses" / course_id
+        backup = course_dir.with_name(course_dir.name + ".deleting")
+        moved = False
+        if course_dir.exists():
+            course_dir.rename(backup); moved = True
         with self._connect() as connection:
-            cursor = connection.execute("DELETE FROM courses WHERE id = ?", (course_id,))
-        return cursor.rowcount > 0
+            connection.execute("DELETE FROM courses WHERE id = ?", (course_id,))
+            table_exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='teaching_events'").fetchone()
+            if table_exists:
+                connection.execute("DELETE FROM teaching_events WHERE course_id = ?", (course_id,))
+        if moved: shutil.rmtree(backup)
+        return True
 
     def set_status(self, course_id: str, status_value: str) -> Course | None:
         if status_value not in COURSE_STATUSES:

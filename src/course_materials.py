@@ -39,6 +39,11 @@ class SearchRequest(BaseModel):
     query: str
     top_k: int = 3
 
+class SearchResponse(BaseModel):
+    answer: str
+    sources: list[dict[str, str]]
+    insufficiency_notice: str | None = None
+
 
 class CourseMaterialService:
     def __init__(self, course_store: CourseStore, root: Path | None = None) -> None:
@@ -166,14 +171,20 @@ class CourseMaterialService:
         course = self._require_course(course_id)
         return BuildStatus(course_id=course_id, status=course.status, error=self._errors.get(course_id))
 
-    def search(self, course_id: str, request: SearchRequest) -> list[dict[str, object]]:
+    def search(self, course_id: str, request: SearchRequest) -> dict:
         course = self._require_course(course_id)
         if course.status != "ready":
             raise HTTPException(status_code=400, detail="该课程知识库尚未构建")
         base = self._course_dir(course_id) / "vector_db"
         try:
             retriever = CourseRetriever(base / "course.index", base / "chunks.pkl", DEFAULT_MODEL)
-            return [chunk.__dict__ for chunk in retriever.retrieve(request.query, request.top_k)]
+            chunks = retriever.retrieve(request.query, request.top_k)
+            if not chunks: return {"answer":"","sources":[],"insufficiency_notice":"未检索到可用课程资料。"}
+            from src.config import load_settings
+            from src.llm_client import LLMClient
+            context = "\n".join(f"来源：{chunk.source}\n内容：{chunk.text[:500]}" for chunk in chunks)
+            response = LLMClient(load_settings()).complete([{"role":"system","content":"仅依据提供的课程资料，用中文给出简洁整理答案；不得编造。"},{"role":"user","content":f"问题：{request.query}\n资料：{context}"}], max_tokens=500)
+            return {"answer": response.content, "sources":[{"source":chunk.source,"summary":chunk.text[:80],"relevance":"与问题相关的课程检索结果"} for chunk in chunks], "insufficiency_notice": None}
         except Exception as error:
             raise HTTPException(status_code=500, detail=f"检索失败：{error}") from error
 
@@ -253,6 +264,6 @@ def build_status(course_id: str, service: CourseMaterialService = Depends(get_ma
     return service.status(course_id)
 
 
-@router.post("/search")
-def test_search(course_id: str, request: SearchRequest, service: CourseMaterialService = Depends(get_material_service)) -> list[dict[str, object]]:
+@router.post("/search", response_model=SearchResponse)
+def test_search(course_id: str, request: SearchRequest, service: CourseMaterialService = Depends(get_material_service)) -> dict:
     return service.search(course_id, request)
