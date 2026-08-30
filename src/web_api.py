@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pptx import Presentation
 
 from src.config import ConfigError, Settings, load_settings
+from src.course_data import router as course_router
 from src.material_parser import (
     SUPPORTED_MATERIAL_TYPES,
     MaterialParseError,
@@ -150,9 +151,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
+app.include_router(course_router)
 
 _runtime: WebRuntime | None = None
 _runtime_lock = Lock()

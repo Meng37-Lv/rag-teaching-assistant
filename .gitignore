@@ -26,6 +26,7 @@ src-tauri/gen/
 src-tauri/**/binaries/
 
 # Runtime files
+storage/
 logs/
 uploads/
 tmp/
