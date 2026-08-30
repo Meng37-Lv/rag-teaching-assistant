@@ -99,6 +99,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .home-feature-card.feature-prep { background: #285d76; }
 .home-feature-card.feature-teaching { background: #72568c; }
 .home-feature-card.feature-history { background: #466d73; }
+.home-feature-card.feature-analytics { background: #4f668e; }
 .home-feature-number { color: rgba(255, 255, 255, .7); font: 700 14px ui-monospace, monospace; }
 .home-feature-card strong { color: inherit; font-size: clamp(25px, 4vw, 36px); line-height: 1.2; }
 .home-feature-arrow { color: inherit; font-size: clamp(28px, 4vw, 40px); line-height: 1; }
@@ -383,6 +384,12 @@ textarea:focus { border-color: #27816d; background: #fff; box-shadow: 0 0 0 4px 
 .history-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; color: #718287; font-size: 13px; }
 .history-detail { border: 1px solid #cfe0d9; border-radius: 14px; padding: 18px; background: #f8fbfa; } .history-detail h3 { margin-top: 0; color: #173b35; }
 .history-detail pre { max-height: 320px; overflow: auto; white-space: pre-wrap; color: #334f55; font-size: 12px; }
+.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.analytics-card { display: grid; gap: 5px; border: 1px solid #d7e3df; border-radius: 14px; padding: 18px; background: #f8fbfa; }
+.analytics-card strong { color: #176b59; font-size: 30px; } .analytics-card span { color: #718287; font-size: 13px; }
+.analytics-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.analytics-sections section { border: 1px solid #d8e3df; border-radius: 14px; padding: 18px; background: #fff; }
+.analytics-sections h3 { margin-top: 0; color: #173b35; } .analytics-sections ul { padding-left: 20px; color: #526d72; line-height: 1.8; }
 .teaching-course-select { max-width: 760px; }
 .teaching-course-option { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%; border: 1px solid #d5e1dc; border-radius: 16px; padding: 18px 20px; color: #173b35; background: #fff; text-align: left; cursor: pointer; }
 .teaching-course-option:hover:not(:disabled) { border-color: #27816d; box-shadow: 0 8px 20px rgba(24,58,52,.08); }

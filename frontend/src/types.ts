@@ -103,3 +103,13 @@ export interface TeachingHistoryPage {
   page: number
   page_size: number
 }
+
+export interface TeachingAnalytics {
+  sample_size: number
+  data_insufficient: boolean
+  usage_counts: Record<string, number>
+  score_distribution: { scores: number[]; levels: Record<string, number> }
+  common_issues: Array<{ value: string; count: number }>
+  frequent_chapters: Array<{ value: string; count: number }>
+  low_score_knowledge_points: Array<{ value: string; count: number; event_ids: string[] }>
+}

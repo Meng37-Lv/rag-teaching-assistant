@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { buildCourse, createCourse, deleteCourse, deleteHistoryEvent, deleteMaterial, evaluateAnswer, generatePresentationQuestions, getBuildStatus, getHistoryEvent, historyCsvUrl, listCourses, listHistory, listMaterials, optimizeQuestion, searchCourse, updateCourse, uploadMaterial, clearHistory } from './api.ts'
+import { buildCourse, createCourse, deleteCourse, deleteHistoryEvent, deleteMaterial, evaluateAnswer, generatePresentationQuestions, getAnalytics, getBuildStatus, getHistoryEvent, historyCsvUrl, listCourses, listHistory, listMaterials, optimizeQuestion, searchCourse, updateCourse, uploadMaterial, clearHistory } from './api.ts'
 
 const page = ref('home')
 const mode = ref(null)
@@ -40,6 +40,11 @@ const historyTo = ref('')
 const historyLoading = ref(false)
 const historyError = ref('')
 const historyDetail = ref(null)
+const analyticsData = ref(null)
+const analyticsFrom = ref('')
+const analyticsTo = ref('')
+const analyticsLoading = ref(false)
+const analyticsError = ref('')
 
 const FEATURES = [
   { mode: 'question', number: '01', title: '优化问题', className: 'feature-question' },
@@ -126,6 +131,7 @@ const isHomePage = computed(() => page.value === 'home')
 const isTeachingHome = computed(() => page.value === 'teaching-home')
 const isTeachingSelect = computed(() => page.value === 'teaching-select')
 const isHistoryPage = computed(() => page.value === 'teaching-history')
+const isAnalyticsPage = computed(() => page.value === 'teaching-analytics')
 const isPresetCourse = computed(() => selectedCourse.value?.id === teachingCourseId.value && selectedCourse.value?.name === '人工智能导论')
 const isInputPage = computed(() => page.value === 'input')
 const isResultPage = computed(() => page.value === 'result')
@@ -193,6 +199,8 @@ async function removeAllHistory() { if (!window.confirm(`确认清空“${teachi
 function exportHistory() { window.open(historyCsvUrl(teachingCourseId.value, { task_type: historyTaskType.value || undefined, created_from: historyFrom.value || undefined, created_to: historyTo.value || undefined }), '_blank') }
 function formatHistoryTime(value) { try { return new Date(value).toLocaleString('zh-CN') } catch { return value } }
 function historySummary(item) { const input = item.input_json || {}; if (typeof input.question === 'string') return input.question.slice(0, 100); if (typeof input.text_length === 'number') return `汇报材料（${input.text_length}字）`; return '教学操作记录' }
+async function openAnalytics() { page.value = 'teaching-analytics'; await loadAnalytics() }
+async function loadAnalytics() { if (!teachingCourseId.value) return; analyticsLoading.value = true; analyticsError.value = ''; try { analyticsData.value = await getAnalytics(teachingCourseId.value, { created_from: analyticsFrom.value || undefined, created_to: analyticsTo.value || undefined }) } catch (error) { analyticsError.value = error instanceof Error ? error.message : '加载学情统计失败' } finally { analyticsLoading.value = false } }
 function resetCourseForm() { courseForm.value = { name: '', description: '', grade_level: '', teaching_goal: '' } }
 async function saveCourse() {
   courseLoading.value = true; courseError.value = ''
@@ -366,7 +374,7 @@ async function submit() {
         type="button"
         class="navigation-button"
         :disabled="loading"
-        @click="isResultPage ? returnToInput() : (isHistoryPage ? page = 'teaching-home' : goHome(false))"
+        @click="isResultPage ? returnToInput() : ((isHistoryPage || isAnalyticsPage) ? page = 'teaching-home' : goHome(false))"
       >
         <span aria-hidden="true">←</span>
         返回
@@ -377,7 +385,7 @@ async function submit() {
         :disabled="loading"
         @click="goHome(true)"
       >主页</button>
-      <template v-if="teachingCourseId && (isTeachingHome || isInputPage || isResultPage || isHistoryPage)">
+      <template v-if="teachingCourseId && (isTeachingHome || isInputPage || isResultPage || isHistoryPage || isAnalyticsPage)">
         <span class="current-course-label">当前课程：{{ teachingCourseName }}</span>
         <button type="button" class="navigation-button" :disabled="loading" @click="switchTeachingCourse">切换课程</button>
       </template>
@@ -413,6 +421,12 @@ async function submit() {
     <section v-else-if="isTeachingHome" class="home-menu" aria-label="教学端功能">
       <button v-for="feature in FEATURES" :key="feature.mode" type="button" class="home-feature-card" :class="feature.className" @click="openFeature(feature.mode)"><span class="home-feature-number">{{ feature.number }}</span><strong>{{ feature.title }}</strong><span class="home-feature-arrow">→</span></button>
       <button type="button" class="home-feature-card feature-history" @click="openHistory"><span class="home-feature-number">04</span><strong>历史记录</strong><span class="home-feature-arrow">→</span></button>
+      <button type="button" class="home-feature-card feature-analytics" @click="openAnalytics"><span class="home-feature-number">05</span><strong>学情概览</strong><span class="home-feature-arrow">→</span></button>
+    </section>
+
+    <section v-else-if="isAnalyticsPage" class="workspace prep-workspace">
+      <header class="view-heading"><span>ANALYTICS</span><h2>学情概览</h2></header>
+      <div class="prep-content"><div class="history-filters"><label>起始日期<input v-model="analyticsFrom" type="date" @change="loadAnalytics" /></label><label>结束日期<input v-model="analyticsTo" type="date" @change="loadAnalytics" /></label><button type="button" class="text-button" @click="loadAnalytics">刷新统计</button></div><p v-if="analyticsError" class="message error-message">{{ analyticsError }}</p><p v-if="analyticsLoading" class="muted-text">正在统计真实教学记录...</p><template v-else-if="analyticsData"><div v-if="analyticsData.data_insufficient" class="message notice-message">数据不足：当前范围仅 {{ analyticsData.sample_size }} 条记录，少于 10 条，仅展示事实统计，不生成结论。</div><div class="analytics-grid"><article class="analytics-card"><strong>{{ analyticsData.sample_size }}</strong><span>记录总数</span></article><article v-for="(count, task) in analyticsData.usage_counts" :key="task" class="analytics-card"><strong>{{ count }}</strong><span>{{ task }}</span></article></div><div class="analytics-sections"><section><h3>问题评价等级分布</h3><ul><li v-for="(count, level) in analyticsData.score_distribution.levels" :key="level">{{ level }}：{{ count }}</li></ul><p>分数：{{ analyticsData.score_distribution.scores.join('、') || '暂无' }}</p></section><section><h3>答案评价常见问题</h3><ul><li v-for="item in analyticsData.common_issues" :key="item.value">{{ item.value }}（{{ item.count }}）</li><li v-if="!analyticsData.common_issues.length">暂无</li></ul></section><section><h3>课程依据高频章节</h3><ul><li v-for="item in analyticsData.frequent_chapters" :key="item.value">{{ item.value }}（{{ item.count }}）</li><li v-if="!analyticsData.frequent_chapters.length">暂无</li></ul></section><section><h3>低分或待改进高频知识点</h3><ul><li v-for="item in analyticsData.low_score_knowledge_points" :key="item.value">{{ item.value }}（{{ item.count }}，可追溯 {{ item.event_ids.length }} 条记录）</li><li v-if="!analyticsData.low_score_knowledge_points.length">暂无</li></ul></section></div></template></div>
     </section>
 
     <section v-else-if="isHistoryPage" class="workspace prep-workspace">
