@@ -22,7 +22,7 @@ from pptx import Presentation
 
 from src.config import ConfigError, Settings, load_settings
 from src.course_data import CourseStore, get_course_store, router as course_router
-from src.course_materials import router as course_material_router
+from src.course_materials import load_course_retriever, router as course_material_router
 from src.material_parser import (
     SUPPORTED_MATERIAL_TYPES,
     MaterialParseError,
@@ -162,6 +162,7 @@ app.include_router(course_material_router)
 
 _runtime: WebRuntime | None = None
 _runtime_lock = Lock()
+_course_runtime_cache: dict[str, tuple[WebRuntime, int]] = {}
 _presentation_runtime: PresentationQuestionRuntime | None = None
 _presentation_runtime_lock = Lock()
 
@@ -207,12 +208,31 @@ def _validate_input(value: str, field_name: str) -> str:
     return cleaned
 
 
-def _require_supported_course(course_id: str, store: CourseStore) -> None:
+def _require_supported_course(course_id: str, store: CourseStore):
     course = store.get(course_id)
     if course is None:
         raise HTTPException(status_code=404, detail="课程不存在")
-    if course_id != "default":
+    if course_id != "default" and course.status != "ready":
         raise HTTPException(status_code=400, detail="该课程知识库尚未构建")
+    return course
+
+
+def _get_course_runtime(course_id: str, store: CourseStore) -> WebRuntime:
+    if course_id == "default":
+        return _get_runtime()
+    base = PROJECT_ROOT / "storage" / "courses" / course_id / "vector_db"
+    index_mtime = (base / "course.index").stat().st_mtime_ns
+    cached = _course_runtime_cache.get(course_id)
+    if cached and cached[1] == index_mtime:
+        return cached[0]
+    settings = load_settings()
+    retriever, mapper = load_course_retriever(course_id)
+    service = RAGService(settings)
+    service.retriever = retriever
+    service.retriever = OriginalSourceRetriever(service.retriever, mapper)
+    runtime = WebRuntime(service, mapper, settings)
+    _course_runtime_cache[course_id] = (runtime, index_mtime)
+    return runtime
 
 
 def _add_optimized_question_levels(data: dict[str, object]) -> dict[str, object]:
@@ -289,7 +309,7 @@ def question_optimize(
     _require_supported_course(request.course_id, course_store)
     question = _validate_input(request.question, "问题")
     try:
-        runtime = _get_runtime()
+        runtime = _get_course_runtime(request.course_id, course_store)
         result = runtime.service.question_optimize(
             question,
             runtime.settings.default_top_k,
@@ -311,7 +331,7 @@ def answer_evaluate(
     question = _validate_input(request.question, "问题")
     student_answer = _validate_input(request.student_answer, "学生回答")
     try:
-        runtime = _get_runtime()
+        runtime = _get_course_runtime(request.course_id, course_store)
         result = runtime.service.answer_evaluate(
             question,
             student_answer,
@@ -422,7 +442,22 @@ async def presentation_questions(
     ] = None,
     course_store: CourseStore = Depends(get_course_store),
 ) -> dict[str, object]:
-    _require_supported_course(course_id, course_store)
+    course = _require_supported_course(course_id, course_store)
+    if course_id != "default":
+        extracted_dir = PROJECT_ROOT / "storage" / "courses" / course_id / "extracted"
+        extracted_materials = [
+            ParsedMaterial(path.name, "课程资料", path.read_text(encoding="utf-8"))
+            for path in sorted(extracted_dir.glob("*.txt"))
+            if path.is_file()
+        ] if extracted_dir.exists() else []
+        material = _combine_presentation_materials(extracted_materials)
+        try:
+            result = _get_presentation_runtime().service.generate(material)
+            return result.data
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise _safe_service_error(error) from None
     uploads = files or []
     if not uploads and (text is None or not text.strip()):
         raise HTTPException(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ from scripts.build_vector_db import DEFAULT_MODEL, build_index, encode_chunks, s
 from scripts.split_text import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, split_text
 from src.course_data import CourseStore, get_course_store
 from src.material_parser import MaterialParseError, SUPPORTED_MATERIAL_TYPES, parse_material_file
-from src.retriever import CourseRetriever
+from src.retriever import CourseRetriever, RetrievedChunk
 
 
 MAX_FILE_BYTES = 100 * 1024 * 1024
@@ -141,7 +142,10 @@ class CourseMaterialService:
             index = build_index(encode_chunks(chunks, DEFAULT_MODEL))
             save_faiss_index(index, vector_dir / "course.index")
             save_chunks_mapping(chunks, vector_dir / "chunks.pkl")
-            (vector_dir / "source_mapping.json").write_text(json.dumps({str(i): c.get("source_file") for i, c in enumerate(chunks)}, ensure_ascii=False), encoding="utf-8")
+            (vector_dir / "source_mapping.json").write_text(
+                json.dumps({str(i): {"source_file": c.get("source_file"), "page": c.get("page")} for i, c in enumerate(chunks)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
             self._errors.pop(course_id, None)
             self.course_store.set_status(course_id, "ready")
             return BuildStatus(course_id=course_id, status="ready", error=("；".join(failures) if failures else None))
@@ -166,6 +170,43 @@ class CourseMaterialService:
             return [chunk.__dict__ for chunk in retriever.retrieve(request.query, request.top_k)]
         except Exception as error:
             raise HTTPException(status_code=500, detail=f"检索失败：{error}") from error
+
+
+class CourseSourceMapper:
+    """Source formatter for an isolated course index."""
+
+    def __init__(self, mapping_path: Path) -> None:
+        self.mapping = json.loads(mapping_path.read_text(encoding="utf-8")) if mapping_path.exists() else {}
+        self.valid_pages = {int(value["page"]) for value in self.mapping.values() if isinstance(value, dict) and isinstance(value.get("page"), int)}
+
+    def format_chunk_source(self, chunk: RetrievedChunk) -> str:
+        entry = self.mapping.get(str(chunk.chunk_id), {})
+        source_file = entry.get("source_file", "课程资料") if isinstance(entry, dict) else entry
+        if chunk.page is not None:
+            return f"{source_file}，第{chunk.page}页"
+        return f"{source_file}，课程资料片段{chunk.chunk_id + 1}"
+
+    def sanitize_value(self, value):
+        if isinstance(value, str):
+            if not self.valid_pages:
+                return value
+            return re.sub(
+                r"第(\d+)页",
+                lambda match: match.group(0) if int(match.group(1)) in self.valid_pages else "课程页码引用已移除（该课程来源映射不可用）",
+                value,
+            )
+        if isinstance(value, list):
+            return [self.sanitize_value(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self.sanitize_value(item) for key, item in value.items()}
+        return value
+
+
+def load_course_retriever(course_id: str, root: Path | None = None) -> tuple[CourseRetriever, CourseSourceMapper]:
+    base = (root or Path(__file__).resolve().parents[1] / "storage" / "courses") / course_id
+    vector_dir = base / "vector_db"
+    retriever = CourseRetriever(vector_dir / "course.index", vector_dir / "chunks.pkl", DEFAULT_MODEL)
+    return retriever, CourseSourceMapper(vector_dir / "source_mapping.json")
 
 
 _service: CourseMaterialService | None = None
