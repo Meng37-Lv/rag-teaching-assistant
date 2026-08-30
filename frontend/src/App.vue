@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { buildCourse, createCourse, deleteCourse, deleteMaterial, evaluateAnswer, generatePresentationQuestions, getBuildStatus, listCourses, listMaterials, optimizeQuestion, searchCourse, updateCourse, uploadMaterial } from './api.ts'
+import { buildCourse, createCourse, deleteCourse, deleteHistoryEvent, deleteMaterial, evaluateAnswer, generatePresentationQuestions, getBuildStatus, getHistoryEvent, historyCsvUrl, listCourses, listHistory, listMaterials, optimizeQuestion, searchCourse, updateCourse, uploadMaterial, clearHistory } from './api.ts'
 
 const page = ref('home')
 const mode = ref(null)
@@ -30,6 +30,16 @@ const teachingCourseName = ref('')
 const teachingCourses = ref([])
 const teachingLoading = ref(false)
 const teachingError = ref('')
+const historyItems = ref([])
+const historyTotal = ref(0)
+const historyPage = ref(1)
+const historyPageSize = ref(10)
+const historyTaskType = ref('')
+const historyFrom = ref('')
+const historyTo = ref('')
+const historyLoading = ref(false)
+const historyError = ref('')
+const historyDetail = ref(null)
 
 const FEATURES = [
   { mode: 'question', number: '01', title: '优化问题', className: 'feature-question' },
@@ -115,6 +125,7 @@ const isPresentationMode = computed(() => mode.value === 'presentation')
 const isHomePage = computed(() => page.value === 'home')
 const isTeachingHome = computed(() => page.value === 'teaching-home')
 const isTeachingSelect = computed(() => page.value === 'teaching-select')
+const isHistoryPage = computed(() => page.value === 'teaching-history')
 const isPresetCourse = computed(() => selectedCourse.value?.id === teachingCourseId.value && selectedCourse.value?.name === '人工智能导论')
 const isInputPage = computed(() => page.value === 'input')
 const isResultPage = computed(() => page.value === 'result')
@@ -174,6 +185,14 @@ async function openPrep() {
 async function openTeaching() { page.value = 'teaching-select'; teachingError.value = ''; teachingLoading.value = true; clearCurrentSession(); try { teachingCourses.value = await listCourses() } catch (error) { teachingError.value = error instanceof Error ? error.message : '加载课程失败' } finally { teachingLoading.value = false } }
 function chooseTeachingCourse(course) { if (course.status !== 'ready') return; teachingCourseId.value = course.id; teachingCourseName.value = course.name; resetResultState(); optimizedQuestionInput.value = ''; answerQuestionInput.value = ''; studentAnswer.value = ''; presentationFiles.value = []; presentationText.value = ''; page.value = 'teaching-home' }
 function switchTeachingCourse() { teachingCourseId.value = ''; teachingCourseName.value = ''; clearCurrentSession(); openTeaching() }
+async function openHistory() { page.value = 'teaching-history'; historyPage.value = 1; historyDetail.value = null; await loadHistory() }
+async function loadHistory() { if (!teachingCourseId.value) return; historyLoading.value = true; historyError.value = ''; try { const data = await listHistory(teachingCourseId.value, { task_type: historyTaskType.value || undefined, created_from: historyFrom.value || undefined, created_to: historyTo.value || undefined, page: historyPage.value, page_size: historyPageSize.value }); historyItems.value = data.items; historyTotal.value = data.total } catch (error) { historyError.value = error instanceof Error ? error.message : '加载历史失败' } finally { historyLoading.value = false } }
+async function showHistoryDetail(item) { try { historyDetail.value = await getHistoryEvent(teachingCourseId.value, item.id) } catch (error) { historyError.value = error instanceof Error ? error.message : '加载详情失败' } }
+async function removeHistory(item) { if (!window.confirm('确认删除这条历史记录？')) return; try { await deleteHistoryEvent(teachingCourseId.value, item.id); await loadHistory(); historyDetail.value = null } catch (error) { historyError.value = error instanceof Error ? error.message : '删除历史失败' } }
+async function removeAllHistory() { if (!window.confirm(`确认清空“${teachingCourseName.value}”的全部历史记录？`)) return; try { await clearHistory(teachingCourseId.value); await loadHistory(); historyDetail.value = null } catch (error) { historyError.value = error instanceof Error ? error.message : '清空历史失败' } }
+function exportHistory() { window.open(historyCsvUrl(teachingCourseId.value, { task_type: historyTaskType.value || undefined, created_from: historyFrom.value || undefined, created_to: historyTo.value || undefined }), '_blank') }
+function formatHistoryTime(value) { try { return new Date(value).toLocaleString('zh-CN') } catch { return value } }
+function historySummary(item) { const input = item.input_json || {}; if (typeof input.question === 'string') return input.question.slice(0, 100); if (typeof input.text_length === 'number') return `汇报材料（${input.text_length}字）`; return '教学操作记录' }
 function resetCourseForm() { courseForm.value = { name: '', description: '', grade_level: '', teaching_goal: '' } }
 async function saveCourse() {
   courseLoading.value = true; courseError.value = ''
@@ -347,7 +366,7 @@ async function submit() {
         type="button"
         class="navigation-button"
         :disabled="loading"
-        @click="isResultPage ? returnToInput() : goHome(false)"
+        @click="isResultPage ? returnToInput() : (isHistoryPage ? page = 'teaching-home' : goHome(false))"
       >
         <span aria-hidden="true">←</span>
         返回
@@ -358,7 +377,7 @@ async function submit() {
         :disabled="loading"
         @click="goHome(true)"
       >主页</button>
-      <template v-if="teachingCourseId && (isTeachingHome || isInputPage || isResultPage)">
+      <template v-if="teachingCourseId && (isTeachingHome || isInputPage || isResultPage || isHistoryPage)">
         <span class="current-course-label">当前课程：{{ teachingCourseName }}</span>
         <button type="button" class="navigation-button" :disabled="loading" @click="switchTeachingCourse">切换课程</button>
       </template>
@@ -393,6 +412,12 @@ async function submit() {
 
     <section v-else-if="isTeachingHome" class="home-menu" aria-label="教学端功能">
       <button v-for="feature in FEATURES" :key="feature.mode" type="button" class="home-feature-card" :class="feature.className" @click="openFeature(feature.mode)"><span class="home-feature-number">{{ feature.number }}</span><strong>{{ feature.title }}</strong><span class="home-feature-arrow">→</span></button>
+      <button type="button" class="home-feature-card feature-history" @click="openHistory"><span class="home-feature-number">04</span><strong>历史记录</strong><span class="home-feature-arrow">→</span></button>
+    </section>
+
+    <section v-else-if="isHistoryPage" class="workspace prep-workspace">
+      <header class="view-heading"><span>HISTORY</span><h2>教学历史记录</h2></header>
+      <div class="prep-content"><div class="history-filters"><label>功能<select v-model="historyTaskType" @change="historyPage = 1; loadHistory()"><option value="">全部</option><option value="question_optimize">问题优化</option><option value="answer_evaluate">答案评价</option><option value="presentation_questions">汇报提问</option></select></label><label>起始日期<input v-model="historyFrom" type="date" @change="historyPage = 1; loadHistory()" /></label><label>结束日期<input v-model="historyTo" type="date" @change="historyPage = 1; loadHistory()" /></label><button type="button" class="text-button" @click="exportHistory">导出 CSV</button><button type="button" class="text-button danger-button" :disabled="!historyItems.length && !historyTotal" @click="removeAllHistory">清空当前课程</button></div><p v-if="historyError" class="message error-message">{{ historyError }}</p><p v-if="historyLoading" class="muted-text">正在加载历史记录...</p><p v-else-if="!historyItems.length" class="empty-state">当前筛选条件下暂无历史记录。</p><div v-else class="history-table"><div v-for="item in historyItems" :key="item.id" class="history-row"><div><strong>{{ formatHistoryTime(item.created_at) }}</strong><span>{{ item.task_type }}</span><p>{{ historySummary(item) }}</p></div><div class="history-score">{{ item.score ?? '—' }}<small>{{ item.level || '' }}</small></div><div class="card-actions"><button type="button" class="text-button" @click="showHistoryDetail(item)">详情</button><button type="button" class="text-button danger-button" @click="removeHistory(item)">删除</button></div></div></div><div class="history-pagination"><button type="button" class="text-button" :disabled="historyPage <= 1" @click="historyPage -= 1; loadHistory()">上一页</button><span>第 {{ historyPage }} / {{ Math.max(1, Math.ceil(historyTotal / historyPageSize)) }} 页 · 共 {{ historyTotal }} 条</span><button type="button" class="text-button" :disabled="historyPage >= Math.ceil(historyTotal / historyPageSize)" @click="historyPage += 1; loadHistory()">下一页</button></div><div v-if="historyDetail" class="history-detail"><h3>记录详情</h3><p>匿名学生：{{ historyDetail.student_id || '未提供' }}</p><pre>{{ JSON.stringify(historyDetail.output_json, null, 2) }}</pre><button type="button" class="text-button" @click="historyDetail = null">关闭</button></div></div>
     </section>
 
     <section v-else-if="isTeachingSelect" class="workspace prep-workspace">

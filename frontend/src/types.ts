@@ -82,3 +82,24 @@ export interface CourseSearchResult {
   score: number
   source: string
 }
+
+export interface TeachingEvent {
+  id: string
+  course_id: string
+  created_at: string
+  task_type: string
+  student_id: string | null
+  input_json: Record<string, unknown>
+  output_json: Record<string, unknown>
+  score: number | null
+  level: string | null
+  course_basis_json: unknown[]
+  duration_ms: number | null
+}
+
+export interface TeachingHistoryPage {
+  items: TeachingEvent[]
+  total: number
+  page: number
+  page_size: number
+}

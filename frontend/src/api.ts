@@ -3,6 +3,7 @@ import type {
   PresentationQuestionsResponse,
   QuestionOptimizeResponse,
   Course, CourseMaterial, CourseBuildStatus, CourseSearchResult,
+  TeachingEvent, TeachingHistoryPage,
 } from './types'
 
 const BROWSER_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
@@ -99,6 +100,11 @@ export function deleteMaterial(courseId: string, materialId: string): Promise<vo
 export function buildCourse(id: string): Promise<CourseBuildStatus> { return postJson<CourseBuildStatus>(`/api/courses/${id}/materials/build`, {}) }
 export function getBuildStatus(id: string): Promise<CourseBuildStatus> { return getJson<CourseBuildStatus>(`/api/courses/${id}/materials/build-status`) }
 export function searchCourse(id: string, query: string, topK = 3): Promise<CourseSearchResult[]> { return postJson<CourseSearchResult[]>(`/api/courses/${id}/materials/search`, { query, top_k: topK }) }
+export function listHistory(courseId: string, params: Record<string, string | number | undefined> = {}): Promise<TeachingHistoryPage> { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)])); return getJson<TeachingHistoryPage>(`/api/courses/${courseId}/history${query.toString() ? `?${query}` : ''}`) }
+export function getHistoryEvent(courseId: string, eventId: string): Promise<TeachingEvent> { return getJson<TeachingEvent>(`/api/courses/${courseId}/history/${eventId}`) }
+export function deleteHistoryEvent(courseId: string, eventId: string): Promise<void> { return requestJson<void>(`/api/courses/${courseId}/history/${eventId}`, 'DELETE') }
+export function clearHistory(courseId: string): Promise<{ deleted: number }> { return requestJson<{ deleted: number }>(`/api/courses/${courseId}/history`, 'DELETE') }
+export function historyCsvUrl(courseId: string, params: Record<string, string | undefined> = {}): string { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value)); return `${BROWSER_API_BASE_URL}/api/courses/${courseId}/history/export.csv${query.toString() ? `?${query}` : ''}` }
 
 async function getJson<T>(path: string): Promise<T> { return requestJson<T>(path, 'GET') }
 async function requestJson<T>(path: string, method: string, body?: object): Promise<T> {
