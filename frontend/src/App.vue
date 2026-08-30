@@ -26,6 +26,10 @@ const courseFileInput = ref(null)
 const searchQuery = ref('')
 const searchResults = ref([])
 const teachingCourseId = ref('')
+const teachingCourseName = ref('')
+const teachingCourses = ref([])
+const teachingLoading = ref(false)
+const teachingError = ref('')
 
 const FEATURES = [
   { mode: 'question', number: '01', title: '优化问题', className: 'feature-question' },
@@ -110,6 +114,7 @@ const isAnswerMode = computed(() => mode.value === 'answer')
 const isPresentationMode = computed(() => mode.value === 'presentation')
 const isHomePage = computed(() => page.value === 'home')
 const isTeachingHome = computed(() => page.value === 'teaching-home')
+const isTeachingSelect = computed(() => page.value === 'teaching-select')
 const isPresetCourse = computed(() => selectedCourse.value?.id === teachingCourseId.value && selectedCourse.value?.name === '人工智能导论')
 const isInputPage = computed(() => page.value === 'input')
 const isResultPage = computed(() => page.value === 'result')
@@ -156,6 +161,7 @@ function resetResultState() {
 
 function openFeature(nextMode) {
   if (loading.value) return
+  if (!teachingCourseId.value) { openTeaching(); return }
   mode.value = nextMode
   resetResultState()
   page.value = 'input'
@@ -165,7 +171,9 @@ async function openPrep() {
   page.value = 'prep-list'; courseError.value = ''; courseLoading.value = true
   try { const items = await listCourses(); teachingCourseId.value = items.find((course) => course.name === '人工智能导论')?.id || teachingCourseId.value; courses.value = await Promise.all(items.map(async (course) => ({ ...course, _materialCount: (await listMaterials(course.id)).length }))) } catch (error) { courseError.value = error instanceof Error ? error.message : '加载课程失败' } finally { courseLoading.value = false }
 }
-function openTeaching() { page.value = 'teaching-home'; courseNotice.value = '' }
+async function openTeaching() { page.value = 'teaching-select'; teachingError.value = ''; teachingLoading.value = true; clearCurrentSession(); try { teachingCourses.value = await listCourses() } catch (error) { teachingError.value = error instanceof Error ? error.message : '加载课程失败' } finally { teachingLoading.value = false } }
+function chooseTeachingCourse(course) { if (course.status !== 'ready') return; teachingCourseId.value = course.id; teachingCourseName.value = course.name; resetResultState(); optimizedQuestionInput.value = ''; answerQuestionInput.value = ''; studentAnswer.value = ''; presentationFiles.value = []; presentationText.value = ''; page.value = 'teaching-home' }
+function switchTeachingCourse() { teachingCourseId.value = ''; teachingCourseName.value = ''; clearCurrentSession(); openTeaching() }
 function resetCourseForm() { courseForm.value = { name: '', description: '', grade_level: '', teaching_goal: '' } }
 async function saveCourse() {
   courseLoading.value = true; courseError.value = ''
@@ -182,7 +190,7 @@ async function handleCourseFile(event) { const files = Array.from(event.target.f
 async function removeMaterial(material) { if (!window.confirm(`确认删除资料“${material.filename}”？`)) return; try { await deleteMaterial(selectedCourse.value.id, material.id); courseNotice.value = '资料已删除，如需使用请重新构建知识库。'; await openCourse(selectedCourse.value.id) } catch (error) { courseError.value = error instanceof Error ? error.message : '删除资料失败' } }
 async function rebuildCourse() { courseLoading.value = true; courseError.value = ''; try { const status = await buildCourse(selectedCourse.value.id); courseNotice.value = status.error || (status.status === 'ready' ? '知识库构建完成。' : '知识库构建失败。'); await openCourse(selectedCourse.value.id) } catch (error) { courseError.value = error instanceof Error ? error.message : '构建失败' } finally { courseLoading.value = false } }
 async function runCourseSearch() { if (!searchQuery.value.trim()) return; courseLoading.value = true; courseError.value = ''; try { searchResults.value = await searchCourse(selectedCourse.value.id, searchQuery.value.trim()) } catch (error) { courseError.value = error instanceof Error ? error.message : '检索失败' } finally { courseLoading.value = false } }
-onMounted(async () => { try { const items = await listCourses(); teachingCourseId.value = items.find((course) => course.name === '人工智能导论')?.id || '' } catch { /* 备课端打开时再展示具体错误 */ } })
+onMounted(() => { teachingCourseId.value = ''; teachingCourseName.value = '' })
 
 function clearCurrentSession() {
   if (isQuestionMode.value) optimizedQuestionInput.value = ''
@@ -350,6 +358,10 @@ async function submit() {
         :disabled="loading"
         @click="goHome(true)"
       >主页</button>
+      <template v-if="teachingCourseId && (isTeachingHome || isInputPage || isResultPage)">
+        <span class="current-course-label">当前课程：{{ teachingCourseName }}</span>
+        <button type="button" class="navigation-button" :disabled="loading" @click="switchTeachingCourse">切换课程</button>
+      </template>
     </nav>
 
     <header class="hero">
@@ -381,6 +393,11 @@ async function submit() {
 
     <section v-else-if="isTeachingHome" class="home-menu" aria-label="教学端功能">
       <button v-for="feature in FEATURES" :key="feature.mode" type="button" class="home-feature-card" :class="feature.className" @click="openFeature(feature.mode)"><span class="home-feature-number">{{ feature.number }}</span><strong>{{ feature.title }}</strong><span class="home-feature-arrow">→</span></button>
+    </section>
+
+    <section v-else-if="isTeachingSelect" class="workspace prep-workspace">
+      <header class="view-heading"><span>TEACH</span><h2>选择课程</h2></header>
+      <div class="prep-content teaching-course-select"><p class="muted-text">请选择一门已构建完成的课程开始学习。</p><p v-if="teachingLoading" class="muted-text">正在加载课程...</p><p v-if="teachingError" class="message error-message">{{ teachingError }}</p><div v-if="!teachingLoading && !teachingCourses.length" class="empty-state">暂无课程。</div><button v-for="course in teachingCourses" :key="course.id" type="button" class="teaching-course-option" :disabled="course.status !== 'ready'" @click="chooseTeachingCourse(course)"><span><strong>{{ course.name }}</strong><small>{{ course.description || '暂无简介' }}</small></span><span class="course-status" :class="`status-${course.status}`">{{ course.status }}</span></button></div>
     </section>
 
     <section v-else-if="page === 'prep-list'" class="workspace prep-workspace">
