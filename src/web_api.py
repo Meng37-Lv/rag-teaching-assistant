@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
+from time import perf_counter
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -23,6 +24,7 @@ from pptx import Presentation
 from src.config import ConfigError, Settings, load_settings
 from src.course_data import CourseStore, get_course_store, router as course_router
 from src.course_materials import load_course_retriever, router as course_material_router
+from src.teaching_history import get_history_store, router as history_router
 from src.material_parser import (
     SUPPORTED_MATERIAL_TYPES,
     MaterialParseError,
@@ -159,6 +161,7 @@ app.add_middleware(
 )
 app.include_router(course_router)
 app.include_router(course_material_router)
+app.include_router(history_router)
 
 _runtime: WebRuntime | None = None
 _runtime_lock = Lock()
@@ -235,6 +238,16 @@ def _get_course_runtime(course_id: str, store: CourseStore) -> WebRuntime:
     return runtime
 
 
+def _save_teaching_event(course_store: CourseStore, course_id: str, task_type: str, input_data: dict, output_data: dict, started_at: float) -> None:
+    get_history_store(course_store).add(
+        course_id=course_id,
+        task_type=task_type,
+        input_data=input_data,
+        output_data=output_data,
+        duration_ms=round((perf_counter() - started_at) * 1000),
+    )
+
+
 def _add_optimized_question_levels(data: dict[str, object]) -> dict[str, object]:
     optimized_questions = data.get("optimized_questions")
     if not isinstance(optimized_questions, list) or len(optimized_questions) != 3:
@@ -307,6 +320,7 @@ def question_optimize(
     course_store: CourseStore = Depends(get_course_store),
 ) -> dict[str, object]:
     _require_supported_course(request.course_id, course_store)
+    started_at = perf_counter()
     question = _validate_input(request.question, "问题")
     try:
         runtime = _get_course_runtime(request.course_id, course_store)
@@ -315,7 +329,10 @@ def question_optimize(
             runtime.settings.default_top_k,
         )
         enriched_data = _add_optimized_question_levels(result.data)
-        return runtime.source_mapper.sanitize_value(enriched_data)
+        payload = runtime.source_mapper.sanitize_value(enriched_data)
+        payload = QuestionOptimizeResponse.model_validate(payload).model_dump()
+        _save_teaching_event(course_store, request.course_id, "question_optimize", request.model_dump(), payload, started_at)
+        return payload
     except HTTPException:
         raise
     except Exception as error:
@@ -328,6 +345,7 @@ def answer_evaluate(
     course_store: CourseStore = Depends(get_course_store),
 ) -> dict[str, object]:
     _require_supported_course(request.course_id, course_store)
+    started_at = perf_counter()
     question = _validate_input(request.question, "问题")
     student_answer = _validate_input(request.student_answer, "学生回答")
     try:
@@ -337,7 +355,9 @@ def answer_evaluate(
             student_answer,
             runtime.settings.default_top_k,
         )
-        return runtime.source_mapper.sanitize_value(result.data)
+        payload = runtime.source_mapper.sanitize_value(result.data)
+        _save_teaching_event(course_store, request.course_id, "answer_evaluate", request.model_dump(), payload, started_at)
+        return payload
     except HTTPException:
         raise
     except Exception as error:
@@ -443,6 +463,7 @@ async def presentation_questions(
     course_store: CourseStore = Depends(get_course_store),
 ) -> dict[str, object]:
     course = _require_supported_course(course_id, course_store)
+    started_at = perf_counter()
     if course_id != "default":
         extracted_dir = PROJECT_ROOT / "storage" / "courses" / course_id / "extracted"
         extracted_materials = [
@@ -453,7 +474,9 @@ async def presentation_questions(
         material = _combine_presentation_materials(extracted_materials)
         try:
             result = _get_presentation_runtime().service.generate(material)
-            return result.data
+            payload = result.data
+            _save_teaching_event(course_store, course_id, "presentation_questions", {"course_id": course_id, "text_length": sum(len(item.extracted_text) for item in extracted_materials)}, payload, started_at)
+            return payload
         except HTTPException:
             raise
         except Exception as error:
@@ -492,7 +515,9 @@ async def presentation_questions(
 
     try:
         result = _get_presentation_runtime().service.generate(material)
-        return result.data
+        payload = result.data
+        _save_teaching_event(course_store, course_id, "presentation_questions", {"course_id": course_id, "file_count": len(uploads), "text_length": len(text or "")}, payload, started_at)
+        return payload
     except HTTPException:
         raise
     except Exception as error:
