@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import re
 
 from docx import Document
 from pptx import Presentation
@@ -47,7 +48,7 @@ def parse_material_file(file_path: str | Path) -> ParsedMaterial:
         elif path.suffix.lower() == ".docx":
             extracted_text = _extract_docx(path)
         elif path.suffix.lower() == ".pdf":
-            extracted_text = "\n".join((page.extract_text() or "").strip() for page in PdfReader(str(path)).pages).strip()
+            extracted_text = _clean_pdf_text("\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages))
         else:
             extracted_text = _extract_text_file(path)
     except MaterialParseError:
@@ -60,6 +61,16 @@ def parse_material_file(file_path: str | Path) -> ParsedMaterial:
         material_type=material_type,
         extracted_text=extracted_text,
     )
+
+
+def _clean_pdf_text(text: str) -> str:
+    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+    lines = [line for line in lines if line and not re.fullmatch(r"\d+", line)]
+    counts = {line: lines.count(line) for line in set(lines)}
+    lines = [line for line in lines if counts[line] < 3 or len(line) >= 120]
+    if not lines:
+        raise MaterialParseError("PDF未提取到有效文本，无法建立知识库。")
+    return "\n".join(lines)
 
 
 def parse_text_material(

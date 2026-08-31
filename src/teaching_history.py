@@ -75,11 +75,13 @@ class TeachingHistoryStore:
 
     def add(self, *, course_id: str, task_type: str, input_data: dict, output_data: dict, duration_ms: int | None = None, student_id: str | None = None) -> TeachingEvent:
         evaluation = output_data.get("question_evaluation") if isinstance(output_data, dict) else None
+        direct_score = output_data.get("score") if isinstance(output_data, dict) else None
+        direct_level = output_data.get("level") if isinstance(output_data, dict) else None
         event = TeachingEvent(
             id=str(uuid4()), course_id=course_id, created_at=datetime.now(timezone.utc).isoformat(),
             task_type=task_type, student_id=student_id, input_json=input_data, output_json=output_data,
-            score=evaluation.get("score") if isinstance(evaluation, dict) else None,
-            level=evaluation.get("level") if isinstance(evaluation, dict) else None,
+            score=evaluation.get("score") if isinstance(evaluation, dict) else direct_score,
+            level=evaluation.get("level") if isinstance(evaluation, dict) else direct_level,
             course_basis_json=output_data.get("course_basis", []) if isinstance(output_data, dict) else [],
             duration_ms=duration_ms,
         )

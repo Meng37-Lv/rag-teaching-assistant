@@ -11,8 +11,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT = PROJECT_ROOT / "data" / "clean.txt"
 DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "chunks.pkl"
-DEFAULT_CHUNK_SIZE = 800
-DEFAULT_CHUNK_OVERLAP = 100
+DEFAULT_CHUNK_SIZE = 700
+DEFAULT_CHUNK_OVERLAP = 80
 
 
 def infer_page_id(text: str) -> int | None:

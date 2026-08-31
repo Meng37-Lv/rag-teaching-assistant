@@ -394,6 +394,8 @@ textarea:focus { border-color: #27816d; background: #fff; box-shadow: 0 0 0 4px 
 .history-score { color: #176b59; font-size: 22px; font-weight: 800; text-align: center; } .history-score small { display: block; color: #718287; font-size: 11px; }
 .history-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; color: #718287; font-size: 13px; }
 .history-detail { border: 1px solid #cfe0d9; border-radius: 14px; padding: 18px; background: #f8fbfa; } .history-detail h3 { margin-top: 0; color: #173b35; }
+.history-detail { position: fixed; inset: 0; z-index: 20; width: min(720px, calc(100% - 32px)); max-height: 80vh; overflow: auto; margin: auto; box-shadow: 0 24px 80px rgba(0,0,0,.25); }
+.history-detail::before { content: ''; position: fixed; inset: 0; z-index: -1; background: rgba(20,45,42,.45); }
 .history-detail pre { max-height: 320px; overflow: auto; white-space: pre-wrap; color: #334f55; font-size: 12px; }
 .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .analytics-card { display: grid; gap: 5px; border: 1px solid #d7e3df; border-radius: 14px; padding: 18px; background: #f8fbfa; }
@@ -402,8 +404,17 @@ textarea:focus { border-color: #27816d; background: #fff; box-shadow: 0 0 0 4px 
 .analytics-sections section { border: 1px solid #d8e3df; border-radius: 14px; padding: 18px; background: #fff; }
 .analytics-sections h3 { margin-top: 0; color: #173b35; } .analytics-sections ul { padding-left: 20px; color: #526d72; line-height: 1.8; }
 .report-panel { display: grid; gap: 14px; border-top: 2px solid #466d73; padding-top: 22px; }
+.report-panel { position: fixed; inset: 6vh 5vw; z-index: 19; overflow: auto; padding: 28px; border: 1px solid #cfe0d9; border-radius: 22px; background: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.25); }
 .report-panel h3 { margin: 0; color: #173b35; } .report-section { border: 1px solid #d8e3df; border-radius: 12px; padding: 15px; background: #fbfdfc; }
 .report-section h4 { margin: 0 0 10px; color: #176b59; } .report-section strong { color: #294f4a; } .report-section p { margin: 5px 0 0; color: #607579; line-height: 1.6; }
+.report-export-actions { display: flex; gap: 10px; }
+.report-export-dock { position: fixed; right: 7vw; bottom: 5vh; z-index: 30; display: flex; gap: 8px; padding: 10px 14px; border: 1px solid #cfe0d9; border-radius: 14px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.15); }
+.readable-history { display: grid; gap: 6px; color: #526d72; }
+.history-modal-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(20,45,42,.48); }
+.history-modal { width: min(720px, 100%); max-height: 82vh; overflow: auto; border-radius: 20px; padding: 28px; background: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.25); color: #526d72; }
+.history-modal h3 { margin: 0; color: #173b35; } .history-modal p { line-height: 1.7; }
+.history-detail { display: none; }
+.search-answer strong { font-size: 0; } .search-answer strong::after { content: '示例答案'; font-size: 15px; }
 .teaching-course-select { max-width: 760px; }
 .teaching-course-option { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%; border: 1px solid #d5e1dc; border-radius: 16px; padding: 18px 20px; color: #173b35; background: #fff; text-align: left; cursor: pointer; }
 .teaching-course-option:hover:not(:disabled) { border-color: #27816d; box-shadow: 0 8px 20px rgba(24,58,52,.08); }

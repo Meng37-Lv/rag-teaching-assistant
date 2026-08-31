@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { buildCourse, createCourse, createLearningReport, deleteCourse, deleteHistoryEvent, deleteMaterial, evaluateAnswer, generatePresentationQuestions, getAnalytics, getBuildStatus, getHistoryEvent, historyCsvUrl, listCourses, listHistory, listMaterials, optimizeQuestion, searchCourse, updateCourse, uploadMaterial, clearHistory } from './api.ts'
+import { buildCourse, createCourse, createLearningReport, deleteCourse, deleteHistoryEvent, deleteMaterial, evaluateAnswer, generatePresentationQuestions, getAnalytics, getBuildStatus, getHistoryEvent, downloadHistoryCsv, exportLearningReport, listCourses, listHistory, listMaterials, optimizeQuestion, searchCourse, updateCourse, uploadMaterial, clearHistory } from './api.ts'
 
 const page = ref('home')
 const mode = ref(null)
@@ -210,16 +210,17 @@ async function loadHistory() { if (!teachingCourseId.value) return; historyLoadi
 async function showHistoryDetail(item) { try { historyDetail.value = await getHistoryEvent(teachingCourseId.value, item.id) } catch (error) { historyError.value = error instanceof Error ? error.message : '加载详情失败' } }
 async function removeHistory(item) { if (!window.confirm('确认删除这条历史记录？')) return; try { await deleteHistoryEvent(teachingCourseId.value, item.id); await loadHistory(); historyDetail.value = null } catch (error) { historyError.value = error instanceof Error ? error.message : '删除历史失败' } }
 async function removeAllHistory() { if (!window.confirm(`确认清空“${teachingCourseName.value}”的全部历史记录？`)) return; try { await clearHistory(teachingCourseId.value); await loadHistory(); historyDetail.value = null } catch (error) { historyError.value = error instanceof Error ? error.message : '清空历史失败' } }
-function exportHistory() { window.open(historyCsvUrl(teachingCourseId.value, { task_type: historyTaskType.value || undefined, created_from: historyFrom.value || undefined, created_to: historyTo.value || undefined }), '_blank') }
+async function exportHistory() { try { const blob = await downloadHistoryCsv(teachingCourseId.value, { task_type: historyTaskType.value || undefined, created_from: historyFrom.value || undefined, created_to: historyTo.value || undefined }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `teaching-history-${teachingCourseName.value}.csv`; link.click(); URL.revokeObjectURL(url) } catch (error) { historyError.value = error instanceof Error ? error.message : '历史记录导出失败' } }
 function formatHistoryTime(value) { try { return new Date(value).toLocaleString('zh-CN') } catch { return value } }
 function historySummary(item) { const input = item.input_json || {}; if (typeof input.question === 'string') return input.question.slice(0, 100); if (typeof input.text_length === 'number') return `汇报材料（${input.text_length}字）`; return '教学操作记录' }
 async function openAnalytics() { page.value = 'teaching-analytics'; await loadAnalytics() }
 async function loadAnalytics() { if (!teachingCourseId.value) return; analyticsLoading.value = true; analyticsError.value = ''; try { analyticsData.value = await getAnalytics(teachingCourseId.value, { created_from: analyticsFrom.value || undefined, created_to: analyticsTo.value || undefined }) } catch (error) { analyticsError.value = error instanceof Error ? error.message : '加载学情统计失败' } finally { analyticsLoading.value = false } }
 async function generateLearningReport() { reportLoading.value = true; reportError.value = ''; try { learningReport.value = await createLearningReport(teachingCourseId.value, { created_from: analyticsFrom.value || undefined, created_to: analyticsTo.value || undefined }) } catch (error) { reportError.value = error instanceof Error ? error.message : '生成报告失败' } finally { reportLoading.value = false } }
+async function exportReport(format) { try { const blob = await exportLearningReport(teachingCourseId.value, format, learningReport.value); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `learning-report-${teachingCourseName.value}.${format}`; link.click(); URL.revokeObjectURL(url) } catch (error) { reportError.value = error instanceof Error ? error.message : '学情报告导出失败' } }
 function resetCourseForm() { courseForm.value = { name: '', description: '', grade_level: '', teaching_goal: '' } }
 async function saveCourse() {
   courseLoading.value = true; courseError.value = ''
-  try { const saved = selectedCourse.value ? await updateCourse(selectedCourse.value.id, courseForm.value) : await createCourse(courseForm.value); await openPrep(); await openCourse(saved.id) } catch (error) { courseError.value = error instanceof Error ? error.message : '保存课程失败' } finally { courseLoading.value = false }
+  try { await (selectedCourse.value ? updateCourse(selectedCourse.value.id, courseForm.value) : createCourse(courseForm.value)); courseNotice.value = '保存成功！'; await openPrep() } catch (error) { courseError.value = error instanceof Error ? error.message : '保存课程失败' } finally { courseLoading.value = false }
 }
 async function openCourse(id) {
   selectedCourse.value = courses.value.find((item) => item.id === id) || selectedCourse.value
@@ -416,17 +417,17 @@ async function submit() {
 
     <section v-if="isHomePage" class="home-menu landing-menu" aria-label="系统入口">
       <button type="button" class="home-feature-card feature-prep" @click="openPrep">
-        <span class="entry-kicker">教师工作台</span><strong>教师备课端</strong><span class="entry-description">管理课程、资料、知识库与学情</span><span class="home-feature-arrow">进入</span>
+        <span class="entry-kicker">教师工作台</span><strong>教师备课端</strong><span class="entry-description">管理课程、资料、知识库与学情</span><span class="home-feature-arrow">→</span>
       </button>
       <button type="button" class="home-feature-card feature-teaching" @click="openTeaching">
-        <span class="entry-kicker">课堂学习</span><strong>教学端</strong><span class="entry-description">选择课程，开始学习反馈</span><span class="home-feature-arrow">进入</span>
+        <span class="entry-kicker">课堂学习</span><strong>教学端</strong><span class="entry-description">选择课程，开始学习反馈</span><span class="home-feature-arrow">→</span>
       </button>
     </section>
 
     <section v-else-if="isTeachingHome" class="home-menu" aria-label="教学端功能">
-      <button v-for="feature in FEATURES" :key="feature.mode" type="button" class="home-feature-card" :class="feature.className" @click="openFeature(feature.mode)"><strong>{{ feature.title }}</strong><span class="home-feature-arrow">进入</span></button>
-      <button type="button" class="home-feature-card feature-history" @click="openHistory"><strong>历史记录</strong><span class="home-feature-arrow">进入</span></button>
-      <button type="button" class="home-feature-card feature-analytics" @click="openAnalytics"><strong>学情概览</strong><span class="home-feature-arrow">进入</span></button>
+      <button v-for="feature in FEATURES" :key="feature.mode" type="button" class="home-feature-card" :class="feature.className" @click="openFeature(feature.mode)"><strong>{{ feature.title }}</strong><span class="home-feature-arrow">→</span></button>
+      <button type="button" class="home-feature-card feature-history" @click="openHistory"><strong>历史记录</strong><span class="home-feature-arrow">→</span></button>
+      <button type="button" class="home-feature-card feature-analytics" @click="openAnalytics"><strong>学情概览</strong><span class="home-feature-arrow">→</span></button>
     </section>
 
     <section v-else-if="isAnalyticsPage" class="workspace prep-workspace">
@@ -695,6 +696,7 @@ accept=".pptx,.docx,.md,.txt,.pdf"
       </template>
 
       <template v-else-if="result.task_type === 'answer_evaluate'">
+        <section class="result-section evaluation-section"><h2>答案评分</h2><div class="evaluation-summary"><strong class="evaluation-score">{{ result.score }}</strong><div><span class="evaluation-score-unit">分</span><strong class="evaluation-level">{{ result.level }}</strong></div></div></section>
         <section class="result-section diagnosis-section">
           <h2>总体评价</h2>
           <p class="lead-text">{{ formatCourseReferences(result.overall_evaluation) }}</p>
@@ -745,6 +747,10 @@ accept=".pptx,.docx,.md,.txt,.pdf"
         </ul>
       </section>
     </section>
+
+    <div v-if="learningReport" class="report-export-dock"><button type="button" class="text-button" @click="exportReport('md')">导出 MD</button><button type="button" class="text-button" @click="exportReport('docx')">导出 Word</button><button type="button" class="text-button" @click="exportReport('pdf')">导出 PDF</button><button type="button" class="text-button" @click="learningReport = null">关闭报告</button></div>
+
+    <div v-if="historyDetail" class="history-modal-overlay" @click.self="historyDetail = null"><div class="history-modal"><div class="section-title-row"><h3>历史详情</h3><button type="button" class="text-button" @click="historyDetail = null">关闭</button></div><p><strong>功能：</strong>{{ historyDetail.task_type }}</p><p><strong>时间：</strong>{{ formatHistoryTime(historyDetail.created_at) }}</p><p><strong>输入摘要：</strong>{{ historySummary(historyDetail) }}</p><p v-if="historyDetail.score !== null"><strong>评分：</strong>{{ historyDetail.score }}分 {{ historyDetail.level || '' }}</p><p><strong>课程资料依据：</strong>{{ historyDetail.course_basis_json?.map(item => item.source || item).join('；') || '无' }}</p><p><strong>结果概览：</strong>{{ historyDetail.output_json?.overall_evaluation || historyDetail.output_json?.question_evaluation?.evaluation || '已完成' }}</p></div></div>
 
     <footer v-if="!isHomePage">
       {{ isPresentationMode

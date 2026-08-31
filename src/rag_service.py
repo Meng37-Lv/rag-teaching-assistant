@@ -162,6 +162,8 @@ def validate_output(
             "task_type",
             "question",
             "student_answer",
+            "score",
+            "level",
             "overall_evaluation",
             "strengths",
             "issues",
@@ -171,6 +173,11 @@ def validate_output(
             "insufficiency_notice",
         ]
         _require_fields(data, fields)
+        if not isinstance(data["score"], int) or not 60 <= data["score"] <= 100:
+            raise ValueError("score 必须是60至100的整数。")
+        expected_level = "简单" if data["score"] <= 75 else "思考型" if data["score"] <= 90 else "深度型"
+        if data["level"] != expected_level:
+            raise ValueError("level 必须与 score 对应。")
         for name in [
             "question",
             "student_answer",

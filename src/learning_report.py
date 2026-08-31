@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import load_settings
@@ -34,6 +36,13 @@ class LearningReportContent(BaseModel):
 
 
 class LearningReportRequest(BaseModel):
+    created_from: str | None = None
+    created_to: str | None = None
+
+class ReportExportRequest(BaseModel):
+    report: dict
+    record_count: int
+    generated_at: str
     created_from: str | None = None
     created_to: str | None = None
 
@@ -68,6 +77,34 @@ def generate_report_payload(events, llm) -> LearningReportContent:
 
 
 router = APIRouter(prefix="/api/courses/{course_id}/learning-report", tags=["learning-report"])
+
+@router.post("/export/{format}")
+def export_learning_report(course_id: str, format: str, request: ReportExportRequest, store: CourseStore = Depends(get_course_store)) -> StreamingResponse:
+    if store.get(course_id) is None: raise HTTPException(status_code=404, detail="课程不存在")
+    header = f"统计范围：{request.created_from or '全部'} 至 {request.created_to or '全部'}；记录数：{request.record_count}；生成时间：{request.generated_at}"
+    if format == "md":
+        text = f"# AI学情分析报告\n\n{header}\n\n" + "\n\n".join(f"## {section}\n" + "\n".join(f"- {item.get('conclusion','')}（证据：{item.get('evidence','')}）" for item in items) for section, items in request.report.items())
+        return StreamingResponse(io.BytesIO(text.encode('utf-8')), media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.md"'})
+    if format == "docx":
+        from docx import Document
+        stream = io.BytesIO(); doc = Document(); doc.add_heading("AI学情分析报告", 0); doc.add_paragraph(header)
+        for section, items in request.report.items():
+            doc.add_heading(section, level=1)
+            for item in items: doc.add_paragraph(f"{item.get('conclusion','')}（证据：{item.get('evidence','')}）")
+        doc.save(stream); stream.seek(0)
+        return StreamingResponse(stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.docx"'})
+    if format == "pdf":
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen.canvas import Canvas
+        stream = io.BytesIO(); canvas = Canvas(stream, pagesize=A4); y = 800; canvas.setFont("Helvetica", 12); canvas.drawString(40, y, "AI Learning Report"); y -= 24; canvas.setFont("Helvetica", 9)
+        for section, items in request.report.items():
+            canvas.drawString(40, y, section); y -= 16
+            for item in items:
+                canvas.drawString(50, y, str(item.get('conclusion',''))[:100]); y -= 14
+                if y < 45: canvas.showPage(); y = 800
+        canvas.save(); stream.seek(0)
+        return StreamingResponse(stream, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.pdf"'})
+    raise HTTPException(status_code=400, detail="仅支持 md、docx、pdf 导出")
 
 
 @router.post("")

@@ -107,8 +107,10 @@ export function getHistoryEvent(courseId: string, eventId: string): Promise<Teac
 export function deleteHistoryEvent(courseId: string, eventId: string): Promise<void> { return requestJson<void>(`/api/courses/${courseId}/history/${eventId}`, 'DELETE') }
 export function clearHistory(courseId: string): Promise<{ deleted: number }> { return requestJson<{ deleted: number }>(`/api/courses/${courseId}/history`, 'DELETE') }
 export function historyCsvUrl(courseId: string, params: Record<string, string | undefined> = {}): string { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value)); return `${BROWSER_API_BASE_URL}/api/courses/${courseId}/history/export.csv${query.toString() ? `?${query}` : ''}` }
+export async function downloadHistoryCsv(courseId: string, params: Record<string, string | undefined> = {}): Promise<Blob> { const response = await fetch(historyCsvUrl(courseId, params)); if (!response.ok) throw new Error('历史记录导出失败'); return response.blob() }
 export function getAnalytics(courseId: string, params: { created_from?: string; created_to?: string } = {}): Promise<TeachingAnalytics> { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value)); return getJson<TeachingAnalytics>(`/api/courses/${courseId}/analytics${query.toString() ? `?${query}` : ''}`) }
 export function createLearningReport(courseId: string, params: { created_from?: string; created_to?: string } = {}): Promise<LearningReport> { return postJson<LearningReport>(`/api/courses/${courseId}/learning-report`, params) }
+export async function exportLearningReport(courseId: string, format: 'md' | 'docx' | 'pdf', report: LearningReport): Promise<Blob> { const response = await fetch(`${BROWSER_API_BASE_URL}/api/courses/${courseId}/learning-report/export/${format}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(report) }); if (!response.ok) throw new Error('学情报告导出失败'); return response.blob() }
 
 async function getJson<T>(path: string): Promise<T> { return requestJson<T>(path, 'GET') }
 async function requestJson<T>(path: string, method: string, body?: object): Promise<T> {
