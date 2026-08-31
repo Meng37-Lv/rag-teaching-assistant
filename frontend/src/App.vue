@@ -25,6 +25,7 @@ const courseForm = ref({ name: '', description: '', grade_level: '', teaching_go
 const courseFileInput = ref(null)
 const searchQuery = ref('')
 const searchResults = ref([])
+const courseSearchResult = ref(null)
 const teachingCourseId = ref('')
 const teachingCourseName = ref('')
 const teachingCourses = ref([])
@@ -135,6 +136,7 @@ const isTeachingHome = computed(() => page.value === 'teaching-home')
 const isTeachingSelect = computed(() => page.value === 'teaching-select')
 const isHistoryPage = computed(() => page.value === 'teaching-history')
 const isAnalyticsPage = computed(() => page.value === 'teaching-analytics')
+const isPrepPage = computed(() => page.value.startsWith('prep-'))
 const isPresetCourse = computed(() => selectedCourse.value?.id === teachingCourseId.value && selectedCourse.value?.name === '人工智能导论')
 const isInputPage = computed(() => page.value === 'input')
 const isResultPage = computed(() => page.value === 'result')
@@ -194,6 +196,15 @@ async function openPrep() {
 async function openTeaching() { page.value = 'teaching-select'; teachingError.value = ''; teachingLoading.value = true; clearCurrentSession(); try { teachingCourses.value = await listCourses() } catch (error) { teachingError.value = error instanceof Error ? error.message : '加载课程失败' } finally { teachingLoading.value = false } }
 function chooseTeachingCourse(course) { if (course.status !== 'ready') return; teachingCourseId.value = course.id; teachingCourseName.value = course.name; resetResultState(); optimizedQuestionInput.value = ''; answerQuestionInput.value = ''; studentAnswer.value = ''; presentationFiles.value = []; presentationText.value = ''; page.value = 'teaching-home' }
 function switchTeachingCourse() { teachingCourseId.value = ''; teachingCourseName.value = ''; clearCurrentSession(); openTeaching() }
+function goBack() {
+  if (isResultPage.value) returnToInput()
+  else if (page.value === 'teaching-home') openTeaching()
+  else if (isTeachingSelect.value || page.value === 'prep-list') goHome(false)
+  else if (page.value === 'prep-form' || page.value === 'prep-detail') openPrep()
+  else if (isHistoryPage.value || isAnalyticsPage.value) page.value = 'teaching-home'
+  else if (isInputPage.value) page.value = 'teaching-home'
+  else goHome(false)
+}
 async function openHistory() { page.value = 'teaching-history'; historyPage.value = 1; historyDetail.value = null; await loadHistory() }
 async function loadHistory() { if (!teachingCourseId.value) return; historyLoading.value = true; historyError.value = ''; try { const data = await listHistory(teachingCourseId.value, { task_type: historyTaskType.value || undefined, created_from: historyFrom.value || undefined, created_to: historyTo.value || undefined, page: historyPage.value, page_size: historyPageSize.value }); historyItems.value = data.items; historyTotal.value = data.total } catch (error) { historyError.value = error instanceof Error ? error.message : '加载历史失败' } finally { historyLoading.value = false } }
 async function showHistoryDetail(item) { try { historyDetail.value = await getHistoryEvent(teachingCourseId.value, item.id) } catch (error) { historyError.value = error instanceof Error ? error.message : '加载详情失败' } }
@@ -217,10 +228,12 @@ async function openCourse(id) {
   try { courseMaterials.value = await listMaterials(id); selectedCourse.value = courses.value.find((item) => item.id === id) || selectedCourse.value; const status = await getBuildStatus(id); selectedCourse.value = { ...selectedCourse.value, status: status.status }; if (status.error) courseNotice.value = status.error } catch (error) { courseError.value = error instanceof Error ? error.message : '加载课程详情失败' } finally { courseLoading.value = false }
 }
 async function removeCourse(course) { if (!window.confirm(`确认删除课程“${course.name}”？`)) return; try { await deleteCourse(course.id); await openPrep() } catch (error) { courseError.value = error instanceof Error ? error.message : '删除课程失败' } }
-async function handleCourseFile(event) { const files = Array.from(event.target.files || []); event.target.value = ''; for (const file of files) { try { await uploadMaterial(selectedCourse.value.id, file) } catch (error) { courseError.value = error instanceof Error ? error.message : '上传资料失败' } } await openCourse(selectedCourse.value.id) }
+async function handleCourseFile(event) { const files = Array.from(event.target.files || []); event.target.value = ''; await uploadCourseFiles(files) }
+async function uploadCourseFiles(files) { for (const file of files) { try { await uploadMaterial(selectedCourse.value.id, file) } catch (error) { courseError.value = error instanceof Error ? error.message : '上传资料失败' } } await openCourse(selectedCourse.value.id) }
+function handleCourseDrop(event) { event.preventDefault(); if (!isPresetCourse.value && selectedCourse.value?.status !== 'building') uploadCourseFiles(Array.from(event.dataTransfer?.files || [])) }
 async function removeMaterial(material) { if (!window.confirm(`确认删除资料“${material.filename}”？`)) return; try { await deleteMaterial(selectedCourse.value.id, material.id); courseNotice.value = '资料已删除，如需使用请重新构建知识库。'; await openCourse(selectedCourse.value.id) } catch (error) { courseError.value = error instanceof Error ? error.message : '删除资料失败' } }
 async function rebuildCourse() { courseLoading.value = true; courseError.value = ''; try { const status = await buildCourse(selectedCourse.value.id); courseNotice.value = status.error || (status.status === 'ready' ? '知识库构建完成。' : '知识库构建失败。'); await openCourse(selectedCourse.value.id) } catch (error) { courseError.value = error instanceof Error ? error.message : '构建失败' } finally { courseLoading.value = false } }
-async function runCourseSearch() { if (!searchQuery.value.trim()) return; courseLoading.value = true; courseError.value = ''; try { searchResults.value = await searchCourse(selectedCourse.value.id, searchQuery.value.trim()) } catch (error) { courseError.value = error instanceof Error ? error.message : '检索失败' } finally { courseLoading.value = false } }
+async function runCourseSearch() { if (!searchQuery.value.trim()) return; courseLoading.value = true; courseError.value = ''; try { courseSearchResult.value = await searchCourse(selectedCourse.value.id, searchQuery.value.trim()) } catch (error) { courseError.value = error instanceof Error ? error.message : '检索失败' } finally { courseLoading.value = false } }
 onMounted(() => { teachingCourseId.value = ''; teachingCourseName.value = '' })
 
 function clearCurrentSession() {
@@ -378,7 +391,7 @@ async function submit() {
         type="button"
         class="navigation-button"
         :disabled="loading"
-        @click="isResultPage ? returnToInput() : ((isHistoryPage || isAnalyticsPage) ? page = 'teaching-home' : goHome(false))"
+        @click="goBack"
       >
         <span aria-hidden="true">←</span>
         返回
@@ -401,31 +414,19 @@ async function submit() {
       <p>基于课程PPT知识库生成学习反馈</p>
     </header>
 
-    <section v-if="isHomePage" class="home-menu" aria-label="选择教学辅助功能">
+    <section v-if="isHomePage" class="home-menu landing-menu" aria-label="系统入口">
       <button type="button" class="home-feature-card feature-prep" @click="openPrep">
-        <span class="home-feature-number">00</span><strong>备课端</strong><span class="home-feature-arrow">→</span>
+        <span class="entry-kicker">教师工作台</span><strong>教师备课端</strong><span class="entry-description">管理课程、资料、知识库与学情</span><span class="home-feature-arrow">进入</span>
       </button>
       <button type="button" class="home-feature-card feature-teaching" @click="openTeaching">
-        <span class="home-feature-number">TEACH</span><strong>教学端</strong><span class="home-feature-arrow">→</span>
-      </button>
-      <button
-        v-for="feature in FEATURES"
-        :key="feature.mode"
-        type="button"
-        class="home-feature-card"
-        :class="feature.className"
-        @click="openFeature(feature.mode)"
-      >
-        <span class="home-feature-number">{{ feature.number }}</span>
-        <strong>{{ feature.title }}</strong>
-        <span class="home-feature-arrow" aria-hidden="true">→</span>
+        <span class="entry-kicker">课堂学习</span><strong>教学端</strong><span class="entry-description">选择课程，开始学习反馈</span><span class="home-feature-arrow">进入</span>
       </button>
     </section>
 
     <section v-else-if="isTeachingHome" class="home-menu" aria-label="教学端功能">
-      <button v-for="feature in FEATURES" :key="feature.mode" type="button" class="home-feature-card" :class="feature.className" @click="openFeature(feature.mode)"><span class="home-feature-number">{{ feature.number }}</span><strong>{{ feature.title }}</strong><span class="home-feature-arrow">→</span></button>
-      <button type="button" class="home-feature-card feature-history" @click="openHistory"><span class="home-feature-number">04</span><strong>历史记录</strong><span class="home-feature-arrow">→</span></button>
-      <button type="button" class="home-feature-card feature-analytics" @click="openAnalytics"><span class="home-feature-number">05</span><strong>学情概览</strong><span class="home-feature-arrow">→</span></button>
+      <button v-for="feature in FEATURES" :key="feature.mode" type="button" class="home-feature-card" :class="feature.className" @click="openFeature(feature.mode)"><strong>{{ feature.title }}</strong><span class="home-feature-arrow">进入</span></button>
+      <button type="button" class="home-feature-card feature-history" @click="openHistory"><strong>历史记录</strong><span class="home-feature-arrow">进入</span></button>
+      <button type="button" class="home-feature-card feature-analytics" @click="openAnalytics"><strong>学情概览</strong><span class="home-feature-arrow">进入</span></button>
     </section>
 
     <section v-else-if="isAnalyticsPage" class="workspace prep-workspace">
@@ -461,12 +462,12 @@ async function submit() {
 
     <section v-else-if="page === 'prep-detail'" class="workspace prep-workspace">
       <header class="view-heading"><span>PREP</span><h2>{{ selectedCourse?.name }}</h2></header>
-      <div class="prep-content"><p v-if="courseLoading" class="muted-text">正在加载课程详情...</p><template v-else><div class="detail-meta"><span class="course-status" :class="`status-${selectedCourse?.status}`">{{ selectedCourse?.status }}</span><span>资料 {{ courseMaterials.length }} 份</span></div><div v-if="isPresetCourse" class="message notice-message">预置课程资料不可修改，如需新资料请创建课程。</div><div v-if="courseError" class="message error-message">{{ courseError }}</div><div v-if="courseNotice" class="message notice-message">{{ courseNotice }}</div><div class="material-toolbar"><input ref="courseFileInput" type="file" multiple accept=".pptx,.docx,.md,.txt" :disabled="isPresetCourse || selectedCourse?.status === 'building'" @change="handleCourseFile" /><button class="submit-button" type="button" :disabled="isPresetCourse || courseLoading || selectedCourse?.status === 'building' || !courseMaterials.length" @click="rebuildCourse">{{ selectedCourse?.status === 'building' ? '正在构建...' : '开始构建' }}</button></div><p v-if="!courseMaterials.length" class="empty-state">暂无资料，请上传 PPTX、DOCX、MD 或 TXT 文件。</p><ul v-else class="material-list"><li v-for="material in courseMaterials" :key="material.id"><span>{{ material.filename }} · {{ formatFileSize(material.size) }}</span><button class="text-button danger-button" type="button" :disabled="isPresetCourse || selectedCourse?.status === 'building'" @click="removeMaterial(material)">删除</button></li></ul><div class="search-box"><h3>测试检索</h3><div class="search-row"><input v-model="searchQuery" placeholder="输入问题测试课程知识库" @keyup.enter="runCourseSearch" /><button class="submit-button small-button" type="button" :disabled="courseLoading || selectedCourse?.status !== 'ready'" @click="runCourseSearch">检索</button></div><ul v-if="searchResults.length" class="search-results"><li v-for="item in searchResults" :key="item.chunk_id"><strong>{{ item.source }}</strong><p>{{ item.text }}</p></li></ul><p v-else class="muted-text">构建完成后可测试检索。</p></div></template></div>
+      <div class="prep-content"><p v-if="courseLoading" class="muted-text">正在加载课程详情...</p><template v-else><div class="detail-meta"><span class="course-status" :class="`status-${selectedCourse?.status}`">{{ selectedCourse?.status }}</span><span>资料 {{ courseMaterials.length }} 份</span></div><div v-if="isPresetCourse" class="message notice-message">预置课程资料不可修改，如需新资料请创建课程。</div><div v-if="courseError" class="message error-message">{{ courseError }}</div><div v-if="courseNotice" class="message notice-message">{{ courseNotice }}</div><div class="material-toolbar drop-zone" @dragover.prevent @drop="handleCourseDrop"><input ref="courseFileInput" type="file" multiple accept=".pptx,.docx,.md,.txt,.pdf" :disabled="isPresetCourse || selectedCourse?.status === 'building'" @change="handleCourseFile" /><span>也可将资料拖拽到此处</span><button class="submit-button" type="button" :disabled="isPresetCourse || courseLoading || selectedCourse?.status === 'building' || !courseMaterials.length" @click="rebuildCourse">{{ selectedCourse?.status === 'building' ? '正在构建...' : '开始构建' }}</button></div><p v-if="!courseMaterials.length" class="empty-state">暂无资料，请上传 PPTX、DOCX、MD、TXT 或 PDF 文件。</p><ul v-else class="material-list"><li v-for="material in courseMaterials" :key="material.id"><span>{{ material.filename }} · {{ formatFileSize(material.size) }}</span><button class="text-button danger-button" type="button" :disabled="isPresetCourse || selectedCourse?.status === 'building'" @click="removeMaterial(material)">删除</button></li></ul><div class="search-box"><h3>测试检索</h3><div class="search-row"><input v-model="searchQuery" placeholder="输入问题测试课程知识库" @keyup.enter="runCourseSearch" /><button class="submit-button small-button" type="button" :disabled="courseLoading || selectedCourse?.status !== 'ready'" @click="runCourseSearch">检索</button></div><template v-if="courseSearchResult"><div class="search-answer"><strong>整理答案</strong><p>{{ courseSearchResult.answer }}</p></div><ul v-if="courseSearchResult.sources?.length" class="search-results"><li v-for="item in courseSearchResult.sources" :key="item.source"><strong>{{ item.source }}</strong><p>{{ item.summary }}</p><small>{{ item.relevance }}</small></li></ul><p v-if="courseSearchResult.insufficiency_notice" class="muted-text">{{ courseSearchResult.insufficiency_notice }}</p></template><p v-else class="muted-text">构建完成后可测试检索。</p></div></template></div>
     </section>
 
     <section v-else-if="isInputPage" class="workspace" aria-label="教学辅助输入区">
       <header class="view-heading">
-        <span>{{ currentFeature?.number }}</span>
+        <span>教学端</span>
         <h2>{{ currentFeature?.title }}</h2>
       </header>
 
