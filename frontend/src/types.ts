@@ -82,6 +82,11 @@ export interface CourseSearchResult {
   score: number
   source: string
 }
+export interface CourseSearchResponse {
+  answer: string
+  sources: Array<{ source: string; summary: string; relevance: string }>
+  insufficiency_notice: string | null
+}
 
 export interface TeachingEvent {
   id: string

@@ -2,7 +2,7 @@ import type {
   AnswerEvaluateResponse,
   PresentationQuestionsResponse,
   QuestionOptimizeResponse,
-  Course, CourseMaterial, CourseBuildStatus, CourseSearchResult,
+  Course, CourseMaterial, CourseBuildStatus, CourseSearchResult, CourseSearchResponse,
   TeachingEvent, TeachingHistoryPage,
   TeachingAnalytics,
   LearningReport,
@@ -101,7 +101,7 @@ export function uploadMaterial(id: string, file: File): Promise<CourseMaterial> 
 export function deleteMaterial(courseId: string, materialId: string): Promise<void> { return requestJson<void>(`/api/courses/${courseId}/materials/${materialId}`, 'DELETE') }
 export function buildCourse(id: string): Promise<CourseBuildStatus> { return postJson<CourseBuildStatus>(`/api/courses/${id}/materials/build`, {}) }
 export function getBuildStatus(id: string): Promise<CourseBuildStatus> { return getJson<CourseBuildStatus>(`/api/courses/${id}/materials/build-status`) }
-export function searchCourse(id: string, query: string, topK = 3): Promise<CourseSearchResult[]> { return postJson<CourseSearchResult[]>(`/api/courses/${id}/materials/search`, { query, top_k: topK }) }
+export function searchCourse(id: string, query: string, topK = 3): Promise<CourseSearchResponse> { return postJson<CourseSearchResponse>(`/api/courses/${id}/materials/search`, { query, top_k: topK }) }
 export function listHistory(courseId: string, params: Record<string, string | number | undefined> = {}): Promise<TeachingHistoryPage> { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)])); return getJson<TeachingHistoryPage>(`/api/courses/${courseId}/history${query.toString() ? `?${query}` : ''}`) }
 export function getHistoryEvent(courseId: string, eventId: string): Promise<TeachingEvent> { return getJson<TeachingEvent>(`/api/courses/${courseId}/history/${eventId}`) }
 export function deleteHistoryEvent(courseId: string, eventId: string): Promise<void> { return requestJson<void>(`/api/courses/${courseId}/history/${eventId}`, 'DELETE') }
