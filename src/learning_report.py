@@ -16,6 +16,14 @@ from src.teaching_history import TeachingHistoryStore, get_history_store
 
 
 SECTION_NAMES = ("整体概况", "高频疑点", "常见误区", "薄弱知识点", "思维能力", "代表证据", "教学建议")
+TECHNICAL_LABELS = {"score_distribution": "成绩分布", "common_issues": "常见薄弱点", "frequent_chapters": "课程依据", "low_score_knowledge_points": "待改进知识点", "usage_counts": "功能使用情况", "sample_size": "记录总数", "data_insufficient": "数据是否充足", "scores": "得分记录", "levels": "评价等级", "count": "出现次数", "weakness": "薄弱表现", "advice": "改进建议", "course_basis": "课程依据", "basis": "课程依据", "question_optimize": "问题优化", "answer_evaluate": "答案评价", "presentation_questions": "汇报提问", "task_type": "教学功能", "input_summary": "问题概括", "event_id": "记录编号"}
+
+
+def _teacher_text(value: object) -> str:
+    text = str(value or "")
+    for key, label in TECHNICAL_LABELS.items():
+        text = text.replace(key, label)
+    return text
 
 
 class ReportItem(BaseModel):
@@ -83,24 +91,30 @@ def export_learning_report(course_id: str, format: str, request: ReportExportReq
     if store.get(course_id) is None: raise HTTPException(status_code=404, detail="课程不存在")
     header = f"统计范围：{request.created_from or '全部'} 至 {request.created_to or '全部'}；记录数：{request.record_count}；生成时间：{request.generated_at}"
     if format == "md":
-        text = f"# AI学情分析报告\n\n{header}\n\n" + "\n\n".join(f"## {section}\n" + "\n".join(f"- {item.get('conclusion','')}（证据：{item.get('evidence','')}）" for item in items) for section, items in request.report.items())
+        text = f"# AI学情分析报告\n\n{header}\n\n" + "\n\n".join(f"## {_teacher_text(section)}\n" + "\n".join(f"- {_teacher_text(item.get('conclusion',''))}（分析依据：{_teacher_text(item.get('evidence',''))}）" for item in items) for section, items in request.report.items())
         return StreamingResponse(io.BytesIO(text.encode('utf-8')), media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.md"'})
     if format == "docx":
         from docx import Document
         stream = io.BytesIO(); doc = Document(); doc.add_heading("AI学情分析报告", 0); doc.add_paragraph(header)
         for section, items in request.report.items():
-            doc.add_heading(section, level=1)
-            for item in items: doc.add_paragraph(f"{item.get('conclusion','')}（证据：{item.get('evidence','')}）")
+            doc.add_heading(_teacher_text(section), level=1)
+            for item in items: doc.add_paragraph(f"{_teacher_text(item.get('conclusion',''))}（分析依据：{_teacher_text(item.get('evidence',''))}）")
         doc.save(stream); stream.seek(0)
         return StreamingResponse(stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.docx"'})
     if format == "pdf":
         from reportlab.lib.pagesizes import A4
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
         from reportlab.pdfgen.canvas import Canvas
-        stream = io.BytesIO(); canvas = Canvas(stream, pagesize=A4); y = 800; canvas.setFont("Helvetica", 12); canvas.drawString(40, y, "AI Learning Report"); y -= 24; canvas.setFont("Helvetica", 9)
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        stream = io.BytesIO(); canvas = Canvas(stream, pagesize=A4); y = 800; canvas.setFont("STSong-Light", 15); canvas.drawString(40, y, "AI学情分析报告"); y -= 24; canvas.setFont("STSong-Light", 9)
         for section, items in request.report.items():
-            canvas.drawString(40, y, section); y -= 16
+            canvas.drawString(40, y, _teacher_text(section)); y -= 16
             for item in items:
-                canvas.drawString(50, y, str(item.get('conclusion',''))[:100]); y -= 14
+                line = f"{_teacher_text(item.get('conclusion',''))}；分析依据：{_teacher_text(item.get('evidence',''))}"
+                for offset in range(0, len(line), 42):
+                    canvas.drawString(50, y, line[offset:offset + 42]); y -= 14
+                    if y < 45: canvas.showPage(); canvas.setFont("STSong-Light", 9); y = 800
                 if y < 45: canvas.showPage(); y = 800
         canvas.save(); stream.seek(0)
         return StreamingResponse(stream, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.pdf"'})

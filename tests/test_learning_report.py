@@ -50,6 +50,22 @@ class LearningReportTests(unittest.TestCase):
         self.assertEqual(response.json()["record_count"], 10)
         self.assertEqual(set(response.json()["report"]), set(VALID_REPORT))
 
+    def test_all_export_formats_have_download_headers_and_openable_content(self) -> None:
+        payload = {"report": VALID_REPORT, "record_count": 10, "generated_at": "2026-09-01T00:00:00Z"}
+        expected = {"md": "text/markdown", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "pdf": "application/pdf"}
+        for format, content_type in expected.items():
+            response = self.client.post(f"/api/courses/{self.course.id}/learning-report/export/{format}", json=payload)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.headers["content-type"].startswith(content_type))
+            self.assertIn(f".{format}", response.headers["content-disposition"])
+            self.assertGreater(len(response.content), 100)
+            if format == "docx":
+                from docx import Document
+                Document(__import__("io").BytesIO(response.content))
+            elif format == "pdf":
+                from pypdf import PdfReader
+                self.assertGreaterEqual(len(PdfReader(__import__("io").BytesIO(response.content)).pages), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

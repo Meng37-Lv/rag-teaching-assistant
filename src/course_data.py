@@ -108,6 +108,7 @@ class CourseStore:
     def ensure_default_course(self) -> Course:
         """Create the built-in course once; its knowledge sources remain global and read-only."""
         with self._connect() as connection:
+            connection.execute("UPDATE courses SET name = ? WHERE id = ? AND name != ?", ("人工智能概论", "default", "人工智能概论"))
             if connection.execute("SELECT 1 FROM initialization_flags WHERE name='default_course'").fetchone():
                 return self.get("default")  # type: ignore[return-value]
             connection.execute(
@@ -116,7 +117,7 @@ class CourseStore:
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     "default",
-                    "人工智能导论",
+                    "人工智能概论",
                     "关联现有全局课程资料",
                     "",
                     "",
@@ -126,7 +127,7 @@ class CourseStore:
             )
             connection.execute(
                 "UPDATE courses SET name = ? WHERE id = ? AND name IN (?, ?)",
-                ("人工智能导论", "default", "默认课程", ""),
+                ("人工智能概论", "default", "默认课程", ""),
             )
             connection.execute("INSERT OR IGNORE INTO initialization_flags(name) VALUES ('default_course')")
         return self.get("default")  # type: ignore[return-value]

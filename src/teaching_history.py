@@ -147,7 +147,7 @@ def export_history_csv(course_id: str, task_type: str | None = None, created_fro
     writer.writerow(["id", "course_id", "created_at", "task_type", "student_id", "input_json", "output_json", "score", "level", "course_basis_json", "duration_ms"])
     for event in events:
         writer.writerow([event.id, event.course_id, event.created_at, event.task_type, event.student_id or "", json.dumps(event.input_json, ensure_ascii=False), json.dumps(event.output_json, ensure_ascii=False), event.score if event.score is not None else "", event.level or "", json.dumps(event.course_basis_json, ensure_ascii=False), event.duration_ms if event.duration_ms is not None else ""])
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv; charset=utf-8")
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="teaching-history-{course_id}.csv"'})
 
 
 @router.get("")
@@ -177,14 +177,3 @@ def delete_history_event(course_id: str, event_id: str, store: CourseStore = Dep
 def clear_history(course_id: str, store: CourseStore = Depends(get_course_store), history: TeachingHistoryStore = Depends(get_history_store)) -> dict[str, int]:
     _ensure_course(course_id, store)
     return {"deleted": history.clear(course_id)}
-
-
-@router.get("/export.csv")
-def export_history(course_id: str, task_type: str | None = None, created_from: str | None = None, created_to: str | None = None, store: CourseStore = Depends(get_course_store), history: TeachingHistoryStore = Depends(get_history_store)) -> StreamingResponse:
-    _ensure_course(course_id, store)
-    events, _ = history.list(course_id, task_type, created_from, created_to, 1, 100000)
-    output = io.StringIO(); writer = csv.writer(output)
-    writer.writerow(["id", "course_id", "created_at", "task_type", "student_id", "input_json", "output_json", "score", "level", "course_basis_json", "duration_ms"])
-    for event in events:
-        writer.writerow([event.id, event.course_id, event.created_at, event.task_type, event.student_id or "", json.dumps(event.input_json, ensure_ascii=False), json.dumps(event.output_json, ensure_ascii=False), event.score if event.score is not None else "", event.level or "", json.dumps(event.course_basis_json, ensure_ascii=False), event.duration_ms if event.duration_ms is not None else ""])
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="teaching-history-{course_id}.csv"'})

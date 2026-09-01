@@ -34,7 +34,8 @@ class TeachingAnalyticsTests(unittest.TestCase):
         event = self.history.add(course_id=self.course.id, task_type="question_optimize", input_data={}, output_data={"question_evaluation": {"score": 70, "level": "简单"}, "course_basis": [{"source": "第2章", "reason": "依据"}]})
         events, _ = self.history.list(self.course.id, page=1, page_size=100)
         points = calculate_statistics(events)["low_score_knowledge_points"]
-        self.assertEqual(points[0]["event_ids"], [event.id])
+        self.assertEqual(points[0]["name"], "依据")
+        self.assertIn("第2章", points[0]["basis"])
 
 
 if __name__ == "__main__":
