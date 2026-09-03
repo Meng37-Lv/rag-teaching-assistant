@@ -407,6 +407,14 @@ textarea:focus { border-color: #27816d; background: #fff; box-shadow: 0 0 0 4px 
 .report-panel { position: fixed; inset: 6vh 5vw; z-index: 19; overflow: auto; padding: 28px; border: 1px solid #cfe0d9; border-radius: 22px; background: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.25); }
 .report-panel h3 { margin: 0; color: #173b35; } .report-section { border: 1px solid #d8e3df; border-radius: 12px; padding: 15px; background: #fbfdfc; }
 .report-section h4 { margin: 0 0 10px; color: #176b59; } .report-section strong { color: #294f4a; } .report-section p { margin: 5px 0 0; color: #607579; line-height: 1.6; }
+.report-bullets { margin: 0; padding-left: 22px; display: grid; gap: 10px; }
+.report-bullets li { padding-left: 4px; line-height: 1.55; }
+.report-evidence { display: block; margin-top: 3px; color: #819194; font-size: 12px; }
+.knowledge-point-wide { grid-column: 1 / -1; }
+.knowledge-points-list { margin: 8px 0; padding-left: 24px; display: grid; gap: 10px; }
+.knowledge-points-list li { display: grid; gap: 3px; line-height: 1.55; }
+.knowledge-points-list span { color: #526d72; }
+.course-basis { color: #8a999b; font-size: 12px; }
 .report-export-actions { display: flex; gap: 10px; }
 .report-export-dock { position: fixed; right: 7vw; bottom: 5vh; z-index: 30; display: flex; gap: 8px; padding: 10px 14px; border: 1px solid #cfe0d9; border-radius: 14px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.15); }
 .readable-history { display: grid; gap: 6px; color: #526d72; }

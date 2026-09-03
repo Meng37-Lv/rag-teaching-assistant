@@ -18,7 +18,6 @@ import {
   listHistory,
   listMaterials,
   optimizeQuestion,
-  searchCourse,
   updateCourse,
   uploadMaterial,
   clearHistory,
@@ -50,9 +49,6 @@ const courseForm = ref({
   teaching_goal: "",
 });
 const courseFileInput = ref(null);
-const searchQuery = ref("");
-const searchResults = ref([]);
-const courseSearchResult = ref(null);
 const teachingCourseId = ref("");
 const teachingCourseName = ref("");
 const teachingCourses = ref([]);
@@ -611,21 +607,6 @@ async function rebuildCourse() {
     courseLoading.value = false;
   }
 }
-async function runCourseSearch() {
-  if (!searchQuery.value.trim()) return;
-  courseLoading.value = true;
-  courseError.value = "";
-  try {
-    courseSearchResult.value = await searchCourse(
-      selectedCourse.value.id,
-      searchQuery.value.trim(),
-    );
-  } catch (error) {
-    courseError.value = error instanceof Error ? error.message : "检索失败";
-  } finally {
-    courseLoading.value = false;
-  }
-}
 onMounted(() => {
   teachingCourseId.value = "";
   teachingCourseName.value = "";
@@ -1030,22 +1011,17 @@ async function submit() {
               <article
                 v-for="item in analyticsData.low_score_knowledge_points"
                 :key="item.key"
-                class="knowledge-point"
+                class="knowledge-point knowledge-point-wide"
               >
-                <h4>{{ item.name }}</h4>
-                <p><strong>薄弱表现：</strong>{{ item.weakness }}</p>
-                <p><strong>课程依据：</strong>{{ item.basis }}</p>
-                <p><strong>改进建议：</strong>{{ item.advice }}</p>
-                <details v-if="item.all_evidence.length > 2">
-                  <summary>
-                    查看完整依据（{{ item.all_evidence.length }} 条）
-                  </summary>
-                  <ul>
-                    <li v-for="evidence in item.all_evidence" :key="evidence">
-                      {{ evidence }}
-                    </li>
-                  </ul>
-                </details>
+                <h4>{{ item.chapter || item.name }}</h4>
+                <ol class="knowledge-points-list">
+                  <li v-for="point in item.points" :key="point.name">
+                    <strong>{{ point.name }}</strong>
+                    <span>薄弱表现：{{ point.weakness }}</span>
+                    <span>改进方向：{{ point.advice }}</span>
+                  </li>
+                </ol>
+                <small class="course-basis">课程依据：{{ item.basis }}</small>
               </article>
               <p v-if="!analyticsData.low_score_knowledge_points.length">
                 暂无
@@ -1067,13 +1043,12 @@ async function submit() {
             class="report-section"
           >
             <h4>{{ reportSectionLabel(section) }}</h4>
-            <p class="muted-text">
-              该部分帮助教师理解相关表现、证据和教学含义。
-            </p>
-            <div v-for="item in items" :key="item.conclusion">
-              <strong>{{ humanizeReportText(item.conclusion) }}</strong>
-              <p>{{ humanizeReportText(item.evidence) }}</p>
-            </div>
+            <ul class="report-bullets">
+              <li v-for="item in items" :key="item.conclusion">
+                <strong>{{ humanizeReportText(item.conclusion) }}</strong>
+                <span class="report-evidence">{{ humanizeReportText(item.evidence) }}</span>
+              </li>
+            </ul>
           </article>
         </section>
       </div>
@@ -1425,50 +1400,7 @@ async function submit() {
               </button>
             </li>
           </ul>
-          <div class="search-box">
-            <h3>测试检索</h3>
-            <div class="search-row">
-              <input
-                v-model="searchQuery"
-                placeholder="输入问题测试课程知识库"
-                @keyup.enter="runCourseSearch"
-              /><button
-                class="submit-button small-button"
-                type="button"
-                :disabled="courseLoading || selectedCourse?.status !== 'ready'"
-                @click="runCourseSearch"
-              >
-                检索
-              </button>
-            </div>
-            <template v-if="courseSearchResult"
-              ><div class="search-answer">
-                <strong>整理答案</strong>
-                <p>{{ courseSearchResult.answer }}</p>
-              </div>
-              <ul
-                v-if="courseSearchResult.sources?.length"
-                class="search-results"
-              >
-                <li
-                  v-for="item in courseSearchResult.sources"
-                  :key="item.source"
-                >
-                  <strong>{{ item.source }}</strong>
-                  <p>{{ item.summary }}</p>
-                  <small>{{ item.relevance }}</small>
-                </li>
-              </ul>
-              <p
-                v-if="courseSearchResult.insufficiency_notice"
-                class="muted-text"
-              >
-                {{ courseSearchResult.insufficiency_notice }}
-              </p></template
-            >
-            <p v-else class="muted-text">构建完成后可测试检索。</p>
-          </div></template
-        >
+        </template>
       </div>
     </section>
 
@@ -1915,3 +1847,4 @@ async function submit() {
     </footer>
   </main>
 </template>
+

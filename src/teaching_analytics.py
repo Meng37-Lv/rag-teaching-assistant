@@ -59,7 +59,7 @@ def _display_source(source: str) -> str:
 
 
 def _knowledge_name(reason: str) -> str:
-    cleaned = re.sub(r"^(该来源明确提及|课程独立资料主题为|课程资料主题为|课程资料(?:明确)?(?:提及|说明|包含))", "", reason).strip(" ：:'\"“”")
+    cleaned = re.sub(r"^(该来源(?:明确)?(?:提及|说明|包含)|课程独立资料主题为|课程资料主题为|课程资料(?:明确)?(?:提及|说明|包含))", "", reason).strip(" ：:'\"“”")
     cleaned = re.sub(r"[。；，,].*$", "", cleaned).strip(" ：:'\"“”")
     quoted = re.search(r"[‘'“\"]([^’'”\"]{2,30})[’'”\"]", cleaned)
     if quoted:
@@ -73,7 +73,7 @@ def calculate_statistics(events, course_name: str = "当前课程") -> dict:
     levels = Counter(event.level for event in events if event.level)
     issues: Counter[str] = Counter()
     chapters: Counter[str] = Counter()
-    knowledge: Counter[str] = Counter()
+    knowledge: defaultdict[str, Counter[str]] = defaultdict(Counter)
     evidence: defaultdict[str, list[str]] = defaultdict(list)
     weaknesses: defaultdict[str, Counter[str]] = defaultdict(Counter)
     for event in events:
@@ -91,23 +91,27 @@ def calculate_statistics(events, course_name: str = "当前课程") -> dict:
                 chapters[f"第{match.group(1)}章"] += 1
             if event.score is not None and event.score <= 75:
                 reason = str(item.get("reason") or "相关概念掌握不牢") if isinstance(item, dict) else "相关概念掌握不牢"
+                chapter_match = re.search(r"第\s*([^章]+)章", source)
+                chapter = f"第{chapter_match.group(1).strip()}章" if chapter_match else "课程综合"
                 name = _knowledge_name(reason)
-                knowledge[name] += 1
-                evidence[name].append(_display_source(source))
-                weaknesses[name][f"得分 {event.score} 分，{event.level or '表现待改进'}"] += 1
+                knowledge[chapter][name] += 1
+                evidence[chapter].append(_display_source(source))
+                weaknesses[f"{chapter}:{name}"][f"得分 {event.score} 分，{event.level or '表现待改进'}"] += 1
     low_points = []
-    for name, count in knowledge.most_common(10):
-        all_evidence = list(dict.fromkeys(evidence[name]))
-        compact = _compact_sources(all_evidence[:2])
-        low_points.append({
-            "key": name,
-            "name": name,
-            "count": count,
-            "weakness": weaknesses[name].most_common(1)[0][0],
-            "basis": f"{course_name}：{compact}" if compact else course_name,
-            "advice": f"围绕“{name}”回顾对应章节，并用同类问题进行讲解与订正。",
-            "all_evidence": [f"{course_name}：{item}" for item in all_evidence],
-        })
+    for chapter, names in sorted(knowledge.items(), key=lambda item: -sum(item[1].values()))[:10]:
+        all_evidence = list(dict.fromkeys(evidence[chapter]))
+        compact = _compact_sources(all_evidence[:6])
+        points = []
+        for name, count in names.most_common(5):
+            key = f"{chapter}:{name}"
+            points.append({"name": name, "count": count,
+                "weakness": weaknesses[key].most_common(1)[0][0],
+                "advice": f"围绕“{name}”进行概念辨析、例题练习与订正。"})
+        low_points.append({"key": chapter, "chapter": chapter, "name": chapter,
+            "count": sum(names.values()), "points": points,
+            "weakness": "；".join(f"{p['name']}（{p['weakness']}）" for p in points),
+            "basis": f"{chapter}，{compact}" if compact else chapter,
+            "advice": "按以上薄弱点安排分层讲解和练习。", "all_evidence": []})
     return {
         "sample_size": len(events),
         "data_insufficient": len(events) < 10,

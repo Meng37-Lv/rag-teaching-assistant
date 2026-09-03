@@ -75,19 +75,6 @@ export interface CourseBuildStatus {
   error: string | null;
 }
 
-export interface CourseSearchResult {
-  chunk_id: number;
-  text: string;
-  page: number | null;
-  score: number;
-  source: string;
-}
-export interface CourseSearchResponse {
-  answer: string;
-  sources: Array<{ source: string; summary: string; relevance: string }>;
-  insufficiency_notice: string | null;
-}
-
 export interface TeachingEvent {
   id: string;
   course_id: string;

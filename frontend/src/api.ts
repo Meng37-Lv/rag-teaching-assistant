@@ -5,8 +5,6 @@ import type {
   Course,
   CourseMaterial,
   CourseBuildStatus,
-  CourseSearchResult,
-  CourseSearchResponse,
   TeachingEvent,
   TeachingHistoryPage,
   TeachingAnalytics,
@@ -169,16 +167,6 @@ export function getBuildStatus(id: string): Promise<CourseBuildStatus> {
   return getJson<CourseBuildStatus>(
     `/api/courses/${id}/materials/build-status`,
   );
-}
-export function searchCourse(
-  id: string,
-  query: string,
-  topK = 3,
-): Promise<CourseSearchResponse> {
-  return postJson<CourseSearchResponse>(`/api/courses/${id}/materials/search`, {
-    query,
-    top_k: topK,
-  });
 }
 export function listHistory(
   courseId: string,
