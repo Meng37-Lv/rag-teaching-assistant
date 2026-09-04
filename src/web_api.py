@@ -10,6 +10,8 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -527,3 +529,23 @@ async def presentation_questions(
         raise
     except Exception as error:
         raise _safe_service_error(error) from None
+
+
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+app.mount(
+    "/assets",
+    StaticFiles(directory=FRONTEND_DIST / "assets", check_dir=False),
+    name="frontend-assets",
+)
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def serve_frontend(path: str) -> FileResponse:
+    """Serve the freshly built web client while preserving the API namespace."""
+    if path == "api" or path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    index_path = FRONTEND_DIST / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=503, detail="Web client is not built")
+    return FileResponse(index_path)
