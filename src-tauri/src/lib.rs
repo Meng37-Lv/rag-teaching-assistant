@@ -27,6 +27,21 @@ fn api_base_url(port: tauri::State<'_, ApiPort>) -> String {
   format!("http://127.0.0.1:{}", port.0)
 }
 
+#[tauri::command]
+async fn save_export_file(filename: String, bytes: Vec<u8>) -> Result<Option<String>, String> {
+  let selected = tauri::async_runtime::spawn_blocking(move || {
+    rfd::FileDialog::new().set_file_name(filename).save_file()
+  })
+  .await
+  .map_err(|error| format!("无法打开保存窗口：{error}"))?;
+
+  let Some(path) = selected else {
+    return Ok(None);
+  };
+  std::fs::write(&path, bytes).map_err(|error| format!("保存文件失败：{error}"))?;
+  Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 fn reserve_loopback_port() -> std::io::Result<u16> {
   let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
   Ok(listener.local_addr()?.port())
@@ -90,7 +105,7 @@ fn stop_backend(app: &tauri::AppHandle) {
 pub fn run() {
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![api_base_url])
+    .invoke_handler(tauri::generate_handler![api_base_url, save_export_file])
     .setup(|app| {
       let port = reserve_loopback_port()?;
       let port_argument = port.to_string();

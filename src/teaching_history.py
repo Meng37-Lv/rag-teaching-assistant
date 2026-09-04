@@ -138,16 +138,73 @@ def _ensure_course(course_id: str, store: CourseStore) -> None:
 
 router = APIRouter(prefix="/api/courses/{course_id}/history", tags=["teaching-history"])
 
+TASK_NAMES = {
+    "question_optimize": "问题优化",
+    "answer_evaluate": "答案评价",
+    "presentation_questions": "汇报提问",
+}
+
+
+def _first_text(value: object, keys: tuple[str, ...]) -> str:
+    if not isinstance(value, dict):
+        return ""
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+    return ""
+
+
+def _input_summary(event: TeachingEvent) -> str:
+    text = _first_text(event.input_json, ("question", "student_answer", "text", "content"))
+    if text:
+        return text[:500]
+    count = event.input_json.get("file_count") if isinstance(event.input_json, dict) else None
+    length = event.input_json.get("text_length") if isinstance(event.input_json, dict) else None
+    if count or length:
+        return f"汇报材料（{count or 0}个文件，{length or 0}字）"
+    return "教学操作"
+
+
+def _result_summary(event: TeachingEvent) -> str:
+    output = event.output_json if isinstance(event.output_json, dict) else {}
+    text = _first_text(output, ("optimized_question", "evaluation", "feedback", "answer", "summary"))
+    if text:
+        return text[:500]
+    questions = output.get("questions")
+    if isinstance(questions, list):
+        readable = [str(item.get("question") if isinstance(item, dict) else item).strip() for item in questions[:3]]
+        return "；".join(item for item in readable if item)[:500]
+    issues = output.get("issues")
+    if isinstance(issues, list):
+        readable = [str(item.get("description") or item.get("type") if isinstance(item, dict) else item).strip() for item in issues[:3]]
+        return "；".join(item for item in readable if item)[:500]
+    return "已生成教学反馈"
+
+
+def _basis_summary(event: TeachingEvent) -> str:
+    values = []
+    for item in event.course_basis_json[:5]:
+        if isinstance(item, dict):
+            source = str(item.get("source") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            values.append("：".join(part for part in (source, reason) if part))
+        else:
+            values.append(str(item).strip())
+    return "；".join(value for value in values if value)
+
 
 @router.get("/export.csv")
 def export_history_csv(course_id: str, task_type: str | None = None, created_from: str | None = None, created_to: str | None = None, store: CourseStore = Depends(get_course_store), history: TeachingHistoryStore = Depends(get_history_store)) -> StreamingResponse:
     _ensure_course(course_id, store)
-    events, _ = history.list(course_id, task_type, created_from, created_to, 1, 100000)
-    output = io.StringIO(); writer = csv.writer(output)
-    writer.writerow(["id", "course_id", "created_at", "task_type", "student_id", "input_json", "output_json", "score", "level", "course_basis_json", "duration_ms"])
+    events, total = history.list(course_id, task_type, created_from, created_to, 1, 100000)
+    if total == 0:
+        raise HTTPException(status_code=404, detail="暂无可导出历史")
+    output = io.StringIO(); output.write("\ufeff"); writer = csv.writer(output)
+    writer.writerow(["时间", "功能", "问题/输入", "结果摘要", "score", "level", "课程依据"])
     for event in events:
-        writer.writerow([event.id, event.course_id, event.created_at, event.task_type, event.student_id or "", json.dumps(event.input_json, ensure_ascii=False), json.dumps(event.output_json, ensure_ascii=False), event.score if event.score is not None else "", event.level or "", json.dumps(event.course_basis_json, ensure_ascii=False), event.duration_ms if event.duration_ms is not None else ""])
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="teaching-history-{course_id}.csv"'})
+        writer.writerow([event.created_at, TASK_NAMES.get(event.task_type, event.task_type), _input_summary(event), _result_summary(event), event.score if event.score is not None else "", event.level or "", _basis_summary(event)])
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="teaching-history-{course_id}.csv"'})
 
 
 @router.get("")

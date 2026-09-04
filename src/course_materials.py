@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,9 +104,16 @@ class CourseMaterialService:
         path = next((p for p in (self._course_dir(course_id) / "source_files").glob(f"{material_id}__*") if p.is_file()), None)
         if path is None:
             raise HTTPException(status_code=404, detail="资料不存在")
+        course_dir = self._course_dir(course_id)
         path.unlink()
-        if course.status == "ready":
-            self.course_store.set_status(course_id, "draft")
+        extracted_path = course_dir / "extracted" / f"{path.stem}.txt"
+        if extracted_path.exists():
+            extracted_path.unlink()
+        vector_dir = course_dir / "vector_db"
+        if vector_dir.exists():
+            shutil.rmtree(vector_dir)
+        self._errors[course_id] = "资料已删除，原知识库索引已清除，请重新构建。"
+        self.course_store.set_status(course_id, "draft")
 
     def build(self, course_id: str) -> BuildStatus:
         course = self._require_course(course_id)
@@ -121,6 +129,10 @@ class CourseMaterialService:
                 return BuildStatus(course_id=course_id, status="failed", error=self._errors[course_id])
             extracted_dir = self._course_dir(course_id) / "extracted"
             vector_dir = self._course_dir(course_id) / "vector_db"
+            if extracted_dir.exists():
+                shutil.rmtree(extracted_dir)
+            if vector_dir.exists():
+                shutil.rmtree(vector_dir)
             extracted_dir.mkdir(parents=True, exist_ok=True)
             self.course_store.set_status(course_id, "building")
             chunks: list[dict[str, object]] = []
@@ -234,4 +246,3 @@ def build_materials(course_id: str, service: CourseMaterialService = Depends(get
 @router.get("/build-status", response_model=BuildStatus)
 def build_status(course_id: str, service: CourseMaterialService = Depends(get_material_service)) -> BuildStatus:
     return service.status(course_id)
-

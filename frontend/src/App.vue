@@ -72,6 +72,8 @@ const analyticsError = ref("");
 const learningReport = ref(null);
 const reportLoading = ref(false);
 const reportError = ref("");
+const toastMessage = ref("");
+let toastTimer = null;
 
 const FEATURES = [
   {
@@ -180,9 +182,7 @@ const isHistoryPage = computed(() => page.value === "teaching-history");
 const isAnalyticsPage = computed(() => page.value === "teaching-analytics");
 const isPrepPage = computed(() => page.value.startsWith("prep-"));
 const isPresetCourse = computed(
-  () =>
-    selectedCourse.value?.id === teachingCourseId.value &&
-    selectedCourse.value?.name === "人工智能概论",
+  () => selectedCourse.value?.id === "default",
 );
 const isInputPage = computed(() => page.value === "input");
 const isResultPage = computed(() => page.value === "result");
@@ -384,15 +384,35 @@ async function removeAllHistory() {
       error instanceof Error ? error.message : "清空历史失败";
   }
 }
-function saveBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+function showToast(message) {
+  toastMessage.value = message;
+  if (toastTimer) window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    toastMessage.value = "";
+  }, 2400);
+}
+function safeFilename(value) {
+  return value.replace(/[<>:"/\\|?*]/g, "-");
+}
+async function saveBlob(blob, filename) {
+  if (window.__TAURI_INTERNALS__) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+    return invoke("save_export_file", { filename, bytes });
+  }
+  if (typeof window.showSaveFilePicker === "function") {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: filename });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return handle.name;
+    } catch (error) {
+      if (error?.name === "AbortError") return null;
+      throw error;
+    }
+  }
+  throw new Error("当前环境不支持系统保存窗口，请在桌面应用中导出。");
 }
 async function exportHistory() {
   try {
@@ -401,7 +421,11 @@ async function exportHistory() {
       created_from: historyFrom.value || undefined,
       created_to: historyTo.value || undefined,
     });
-    saveBlob(blob, `teaching-history-${teachingCourseName.value}.csv`);
+    const savedPath = await saveBlob(
+      blob,
+      safeFilename(`teaching-history-${teachingCourseName.value}.csv`),
+    );
+    if (savedPath) showToast("下载成功！");
   } catch (error) {
     historyError.value =
       error instanceof Error ? error.message : "历史记录导出失败";
@@ -501,7 +525,11 @@ async function exportReport(format) {
       format,
       learningReport.value,
     );
-    saveBlob(blob, `learning-report-${teachingCourseName.value}.${format}`);
+    const savedPath = await saveBlob(
+      blob,
+      safeFilename(`learning-report-${teachingCourseName.value}.${format}`),
+    );
+    if (savedPath) showToast("下载成功！");
   } catch (error) {
     reportError.value =
       error instanceof Error ? error.message : "学情报告导出失败";
@@ -522,8 +550,8 @@ async function saveCourse() {
     await (selectedCourse.value
       ? updateCourse(selectedCourse.value.id, courseForm.value)
       : createCourse(courseForm.value));
-    courseNotice.value = "保存成功！";
     await openPrep();
+    showToast("保存成功！");
   } catch (error) {
     courseError.value = error instanceof Error ? error.message : "保存课程失败";
   } finally {
@@ -537,7 +565,6 @@ async function openCourse(id) {
   page.value = "prep-detail";
   courseLoading.value = true;
   courseError.value = "";
-  searchResults.value = [];
   try {
     courseMaterials.value = await listMaterials(id);
     selectedCourse.value =
@@ -576,11 +603,6 @@ async function uploadCourseFiles(files) {
     }
   }
   await openCourse(selectedCourse.value.id);
-}
-function handleCourseDrop(event) {
-  event.preventDefault();
-  if (!isPresetCourse.value && selectedCourse.value?.status !== "building")
-    uploadCourseFiles(Array.from(event.dataTransfer?.files || []));
 }
 async function removeMaterial(material) {
   if (!window.confirm(`确认删除资料“${material.filename}”？`)) return;
@@ -863,7 +885,7 @@ async function submit() {
 
     <section
       v-else-if="isTeachingHome"
-      class="home-menu"
+      class="home-menu teaching-feature-menu"
       aria-label="教学端功能"
     >
       <button
@@ -1347,11 +1369,7 @@ async function submit() {
           <div v-if="courseNotice" class="message notice-message">
             {{ courseNotice }}
           </div>
-          <div
-            class="material-toolbar drop-zone"
-            @dragover.prevent
-            @drop="handleCourseDrop"
-          >
+          <div class="material-toolbar">
             <input
               ref="courseFileInput"
               type="file"
@@ -1361,8 +1379,7 @@ async function submit() {
                 isPresetCourse || selectedCourse?.status === 'building'
               "
               @change="handleCourseFile"
-            /><span>也可将资料拖拽到此处</span
-            ><button
+            /><button
               class="submit-button"
               type="button"
               :disabled="
@@ -1846,5 +1863,8 @@ async function submit() {
       }}
     </footer>
   </main>
+  <div v-if="toastMessage" class="toast-message" role="status">
+    {{ toastMessage }}
+  </div>
 </template>
 

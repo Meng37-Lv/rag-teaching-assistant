@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.course_data import CourseCreate, CourseStore
-from src.course_materials import CourseMaterialService, SearchRequest
+from src.course_materials import CourseMaterialService
 
 
 class CourseMaterialServiceTests(unittest.TestCase):
@@ -36,9 +36,18 @@ class CourseMaterialServiceTests(unittest.TestCase):
     def test_upload_list_delete_and_ready_resets_to_draft(self) -> None:
         material = self.service.upload(self.course.id, self.upload("a.txt", "课程内容".encode()))
         self.assertEqual(len(self.service.list_materials(self.course.id)), 1)
+        course_dir = self.service._course_dir(self.course.id)
+        extracted = course_dir / "extracted" / f"{material.id}__a.txt"
+        extracted.parent.mkdir(parents=True)
+        extracted.write_text("已提取", encoding="utf-8")
+        vector_dir = course_dir / "vector_db"
+        vector_dir.mkdir(parents=True)
+        (vector_dir / "source_mapping.json").write_text("{}", encoding="utf-8")
         self.store.set_status(self.course.id, "ready")
         self.service.delete(self.course.id, material.id)
         self.assertEqual(self.store.get(self.course.id).status, "draft")
+        self.assertFalse(extracted.exists())
+        self.assertFalse(vector_dir.exists())
 
     def test_build_without_materials_fails_with_reason(self) -> None:
         result = self.service.build(self.course.id)
@@ -65,10 +74,6 @@ class CourseMaterialServiceTests(unittest.TestCase):
             result = self.service.build(self.course.id)
         self.assertEqual(result.status, "ready")
         self.assertIn("bad.txt", result.error or "")
-
-    def test_search_requires_ready_course(self) -> None:
-        with self.assertRaisesRegex(Exception, "尚未构建"):
-            self.service.search(self.course.id, SearchRequest(query="课程"))
 
     def test_preset_course_materials_are_read_only(self) -> None:
         preset = self.store.get("default")

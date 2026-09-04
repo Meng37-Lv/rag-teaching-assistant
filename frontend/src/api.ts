@@ -217,7 +217,16 @@ export async function downloadHistoryCsv(
   params: Record<string, string | undefined> = {},
 ): Promise<Blob> {
   const response = await fetch(await historyCsvUrl(courseId, params));
-  if (!response.ok) throw new Error("历史记录导出失败");
+  if (!response.ok) {
+    let detail = "历史记录导出失败";
+    try {
+      const payload = await response.json();
+      if (typeof payload?.detail === "string") detail = payload.detail;
+    } catch {
+      // 非 JSON 错误响应使用通用提示。
+    }
+    throw new Error(detail);
+  }
   return response.blob();
 }
 export function getAnalytics(

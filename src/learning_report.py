@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from html import escape
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -103,20 +104,33 @@ def export_learning_report(course_id: str, format: str, request: ReportExportReq
         return StreamingResponse(stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.docx"'})
     if format == "pdf":
         from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-        from reportlab.pdfgen.canvas import Canvas
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
         pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-        stream = io.BytesIO(); canvas = Canvas(stream, pagesize=A4); y = 800; canvas.setFont("STSong-Light", 15); canvas.drawString(40, y, "AI学情分析报告"); y -= 24; canvas.setFont("STSong-Light", 9)
+        stream = io.BytesIO()
+        document = SimpleDocTemplate(stream, pagesize=A4, leftMargin=22 * mm, rightMargin=22 * mm, topMargin=20 * mm, bottomMargin=20 * mm, title="AI学情分析报告")
+        base = getSampleStyleSheet()
+        title_style = ParagraphStyle("ChineseTitle", parent=base["Title"], fontName="STSong-Light", fontSize=20, leading=28, alignment=TA_CENTER, textColor=colors.HexColor("#173B35"), spaceAfter=12)
+        meta_style = ParagraphStyle("ChineseMeta", parent=base["BodyText"], fontName="STSong-Light", fontSize=9, leading=15, alignment=TA_CENTER, textColor=colors.HexColor("#718287"), spaceAfter=16)
+        section_style = ParagraphStyle("ChineseSection", parent=base["Heading2"], fontName="STSong-Light", fontSize=14, leading=21, textColor=colors.HexColor("#176B59"), spaceBefore=12, spaceAfter=8, keepWithNext=True)
+        body_style = ParagraphStyle("ChineseBody", parent=base["BodyText"], fontName="STSong-Light", fontSize=11, leading=19, textColor=colors.HexColor("#253F3B"), leftIndent=7 * mm, firstLineIndent=-5 * mm, spaceAfter=4, wordWrap="CJK", allowWidows=0, allowOrphans=0)
+        evidence_style = ParagraphStyle("ChineseEvidence", parent=base["BodyText"], fontName="STSong-Light", fontSize=8.5, leading=14, textColor=colors.HexColor("#7A898C"), leftIndent=9 * mm, rightIndent=3 * mm, spaceAfter=8, wordWrap="CJK")
+        story = [Paragraph("AI学情分析报告", title_style), Paragraph(escape(header), meta_style)]
         for section, items in request.report.items():
-            canvas.drawString(40, y, _teacher_text(section)); y -= 16
-            for item in items:
-                line = f"{_teacher_text(item.get('conclusion',''))}；分析依据：{_teacher_text(item.get('evidence',''))}"
-                for offset in range(0, len(line), 42):
-                    canvas.drawString(50, y, line[offset:offset + 42]); y -= 14
-                    if y < 45: canvas.showPage(); canvas.setFont("STSong-Light", 9); y = 800
-                if y < 45: canvas.showPage(); y = 800
-        canvas.save(); stream.seek(0)
+            story.append(Paragraph(escape(_teacher_text(section)), section_style))
+            for index, item in enumerate(items, start=1):
+                conclusion = escape(_teacher_text(item.get("conclusion", "")))
+                evidence = escape(_teacher_text(item.get("evidence", "")))
+                story.append(Paragraph(f"{index}. {conclusion}", body_style))
+                story.append(Paragraph(f"课程依据：{evidence}", evidence_style))
+            story.append(Spacer(1, 2 * mm))
+        document.build(story)
+        stream.seek(0)
         return StreamingResponse(stream, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="learning-report-{course_id}.pdf"'})
     raise HTTPException(status_code=400, detail="仅支持 md、docx、pdf 导出")
 

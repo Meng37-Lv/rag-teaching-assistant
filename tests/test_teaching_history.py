@@ -46,10 +46,15 @@ class TeachingHistoryTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/api/courses/{self.course.id}/history/{ids[0]}").status_code, 204)
         csv_response = self.client.get(f"/api/courses/{self.course.id}/history/export.csv", params={"task_type": "answer_evaluate"})
         self.assertEqual(csv_response.status_code, 200)
-        self.assertIn("answer_evaluate", csv_response.text)
+        self.assertIn("答案评价", csv_response.text)
+        self.assertIn("问题/输入", csv_response.text)
+        self.assertNotIn("input_json", csv_response.text)
         cleared = self.client.delete(f"/api/courses/{self.course.id}/history")
         self.assertEqual(cleared.json()["deleted"], 2)
         self.assertEqual(self.client.get(f"/api/courses/{self.course.id}/history").json()["total"], 0)
+        empty_export = self.client.get(f"/api/courses/{self.course.id}/history/export.csv")
+        self.assertEqual(empty_export.status_code, 404)
+        self.assertEqual(empty_export.json()["detail"], "暂无可导出历史")
 
     def test_missing_course_returns_404(self) -> None:
         self.assertEqual(self.client.get("/api/courses/missing/history").status_code, 404)
