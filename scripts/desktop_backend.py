@@ -25,6 +25,14 @@ def _runtime_root() -> Path:
 def _configure_runtime(root: Path) -> None:
     load_dotenv(root / ".env", override=True)
 
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        data_directory = Path(local_app_data) / "课程知识增强教学助手" / "data"
+    else:
+        data_directory = Path.home() / "AppData" / "Local" / "课程知识增强教学助手" / "data"
+    data_directory.mkdir(parents=True, exist_ok=True)
+    os.environ["RAG_APP_DATA_DIR"] = str(data_directory.resolve())
+
     bundled_model_cache = root / "model_cache"
     if bundled_model_cache.is_dir():
         os.environ["HF_HOME"] = str(bundled_model_cache)
@@ -104,7 +112,7 @@ def main() -> None:
         CORSMiddleware,
         allow_origins=["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"],
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type"],
     )
 
@@ -121,7 +129,7 @@ def main() -> None:
         host="127.0.0.1",
         port=args.port,
         log_level="warning",
-        access_log=False,
+        access_log=True,
         log_config=None,
     )
 

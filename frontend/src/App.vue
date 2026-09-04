@@ -40,6 +40,7 @@ const courses = ref([]);
 const selectedCourse = ref(null);
 const courseMaterials = ref([]);
 const courseLoading = ref(false);
+const courseSaving = ref(false);
 const courseError = ref("");
 const courseNotice = ref("");
 const courseForm = ref({
@@ -544,7 +545,8 @@ function resetCourseForm() {
   };
 }
 async function saveCourse() {
-  courseLoading.value = true;
+  if (courseSaving.value) return;
+  courseSaving.value = true;
   courseError.value = "";
   try {
     await (selectedCourse.value
@@ -555,7 +557,7 @@ async function saveCourse() {
   } catch (error) {
     courseError.value = error instanceof Error ? error.message : "保存课程失败";
   } finally {
-    courseLoading.value = false;
+    courseSaving.value = false;
   }
 }
 async function openCourse(id) {
@@ -897,6 +899,7 @@ async function submit() {
         @click="openFeature(feature.mode)"
       >
         <strong>{{ feature.title }}</strong
+        ><span class="home-feature-number">{{ feature.number }}</span
         ><span class="home-feature-arrow">→</span>
       </button>
       <button
@@ -904,14 +907,16 @@ async function submit() {
         class="home-feature-card feature-history"
         @click="openHistory"
       >
-        <strong>历史记录</strong><span class="home-feature-arrow">→</span>
+        <strong>历史记录</strong><span class="home-feature-number">04</span
+        ><span class="home-feature-arrow">→</span>
       </button>
       <button
         type="button"
         class="home-feature-card feature-analytics"
         @click="openAnalytics"
       >
-        <strong>学情概览</strong><span class="home-feature-arrow">→</span>
+        <strong>学情概览</strong><span class="home-feature-number">05</span
+        ><span class="home-feature-arrow">→</span>
       </button>
     </section>
 
@@ -1317,6 +1322,9 @@ async function submit() {
         <h2>{{ selectedCourse ? "编辑课程" : "新建课程" }}</h2>
       </header>
       <form class="prep-content course-form" @submit.prevent="saveCourse">
+        <p v-if="courseError" class="message error-message">
+          {{ courseError }}
+        </p>
         <label
           >课程名称<input
             v-model="courseForm.name"
@@ -1336,8 +1344,8 @@ async function submit() {
             maxlength="2000"
             rows="3"
           /></label
-        ><button class="submit-button" :disabled="courseLoading">
-          保存课程
+        ><button class="submit-button" :disabled="courseSaving">
+          {{ courseSaving ? "保存中..." : "保存课程" }}
         </button>
       </form>
     </section>

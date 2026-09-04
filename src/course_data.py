@@ -11,8 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-COURSE_DB_PATH = PROJECT_ROOT / "storage" / "courses.db"
+from src.data_paths import course_directory, storage_root
+
+
+COURSE_DB_PATH = storage_root() / "courses.db"
 COURSE_STATUSES = ("draft", "building", "ready", "failed")
 
 
@@ -185,7 +187,7 @@ class CourseStore:
         import shutil
         if self.has_materials(course_id) or self.has_history(course_id):
             raise ValueError("课程存在关联资料或历史记录，不能删除")
-        course_dir = PROJECT_ROOT / "storage" / "courses" / course_id
+        course_dir = course_directory(course_id)
         backup = course_dir.with_name(course_dir.name + ".deleting")
         moved = False
         if course_dir.exists():
@@ -259,3 +261,5 @@ def delete_course(course_id: str, store: CourseStore = Depends(get_course_store)
         store.delete(course_id)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=500, detail=f"删除课程失败：{error.strerror or '文件正在使用或无权限'}") from error

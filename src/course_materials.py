@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from scripts.build_vector_db import DEFAULT_MODEL, build_index, encode_chunks, save_chunks_mapping, save_faiss_index
 from scripts.split_text import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, split_text
 from src.course_data import CourseStore, get_course_store
+from src.data_paths import course_directory, storage_root
 from src.material_parser import MaterialParseError, SUPPORTED_MATERIAL_TYPES, parse_material_file
 from src.retriever import CourseRetriever, RetrievedChunk
 
@@ -39,13 +40,16 @@ class BuildStatus(BaseModel):
 class CourseMaterialService:
     def __init__(self, course_store: CourseStore, root: Path | None = None) -> None:
         self.course_store = course_store
-        self.root = root or Path(__file__).resolve().parents[1] / "storage" / "courses"
+        self.root = (root or storage_root() / "courses").resolve()
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
         self._errors: dict[str, str] = {}
 
     def _course_dir(self, course_id: str) -> Path:
-        return self.root / course_id
+        target = (self.root / course_id).resolve()
+        if target.parent != self.root:
+            raise HTTPException(status_code=400, detail="课程数据目录无效")
+        return target
 
     def _lock(self, course_id: str) -> threading.Lock:
         with self._locks_guard:
@@ -105,13 +109,16 @@ class CourseMaterialService:
         if path is None:
             raise HTTPException(status_code=404, detail="资料不存在")
         course_dir = self._course_dir(course_id)
-        path.unlink()
-        extracted_path = course_dir / "extracted" / f"{path.stem}.txt"
-        if extracted_path.exists():
-            extracted_path.unlink()
-        vector_dir = course_dir / "vector_db"
-        if vector_dir.exists():
-            shutil.rmtree(vector_dir)
+        try:
+            path.unlink()
+            extracted_path = course_dir / "extracted" / f"{path.stem}.txt"
+            if extracted_path.exists():
+                extracted_path.unlink()
+            vector_dir = course_dir / "vector_db"
+            if vector_dir.exists():
+                shutil.rmtree(vector_dir)
+        except OSError as error:
+            raise HTTPException(status_code=500, detail=f"删除资料失败：{error.strerror or '文件正在使用或无权限'}") from error
         self._errors[course_id] = "资料已删除，原知识库索引已清除，请重新构建。"
         self.course_store.set_status(course_id, "draft")
 
@@ -204,7 +211,7 @@ class CourseSourceMapper:
 
 
 def load_course_retriever(course_id: str, root: Path | None = None) -> tuple[CourseRetriever, CourseSourceMapper]:
-    base = (root or Path(__file__).resolve().parents[1] / "storage" / "courses") / course_id
+    base = (root.resolve() / course_id if root else course_directory(course_id))
     vector_dir = base / "vector_db"
     retriever = CourseRetriever(vector_dir / "course.index", vector_dir / "chunks.pkl", DEFAULT_MODEL)
     return retriever, CourseSourceMapper(vector_dir / "source_mapping.json")

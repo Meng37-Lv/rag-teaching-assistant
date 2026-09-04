@@ -23,6 +23,7 @@ from pptx import Presentation
 
 from src.config import ConfigError, Settings, load_settings
 from src.course_data import CourseStore, get_course_store, router as course_router
+from src.data_paths import course_directory
 from src.course_materials import load_course_retriever, router as course_material_router
 from src.teaching_history import get_history_store, router as history_router
 from src.teaching_analytics import router as analytics_router
@@ -227,7 +228,7 @@ def _require_supported_course(course_id: str, store: CourseStore):
 def _get_course_runtime(course_id: str, store: CourseStore) -> WebRuntime:
     if course_id == "default":
         return _get_runtime()
-    base = PROJECT_ROOT / "storage" / "courses" / course_id / "vector_db"
+    base = course_directory(course_id) / "vector_db"
     index_mtime = (base / "course.index").stat().st_mtime_ns
     cached = _course_runtime_cache.get(course_id)
     if cached and cached[1] == index_mtime:
@@ -469,7 +470,7 @@ async def presentation_questions(
     course = _require_supported_course(course_id, course_store)
     started_at = perf_counter()
     if course_id != "default":
-        extracted_dir = PROJECT_ROOT / "storage" / "courses" / course_id / "extracted"
+        extracted_dir = course_directory(course_id) / "extracted"
         extracted_materials = [
             ParsedMaterial(path.name, "课程资料", path.read_text(encoding="utf-8"))
             for path in sorted(extracted_dir.glob("*.txt"))
