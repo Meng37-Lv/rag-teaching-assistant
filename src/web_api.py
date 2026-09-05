@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import re
+import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
@@ -280,6 +282,17 @@ def _add_optimized_question_levels(data: dict[str, object]) -> dict[str, object]
 
 
 def _safe_service_error(error: Exception) -> HTTPException:
+    if isinstance(error, (AuthenticationError, PermissionDeniedError, APIStatusError)):
+        message = re.sub(r"(?i)(bearer\s+)[^\s]+", r"\1[redacted]", str(error))
+        message = re.sub(r"(?i)sk-[A-Za-z0-9_-]+", "[redacted]", message)
+        print(
+            "LLM upstream error: "
+            f"type={type(error).__name__} "
+            f"status={getattr(error, 'status_code', None)} "
+            f"code={getattr(error, 'code', None)} "
+            f"message={message[:500]}",
+            file=sys.stderr,
+        )
     if isinstance(error, APITimeoutError):
         return HTTPException(status_code=504, detail="大模型请求超时，请稍后重试。")
     if isinstance(error, RateLimitError):
