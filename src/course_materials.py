@@ -176,6 +176,91 @@ class CourseMaterialService:
         finally:
             self._lock(course_id).release()
 
+    def start_build(self, course_id: str) -> BuildStatus:
+        """Start embedding/index construction outside the request lifecycle.
+
+        PDF parsing and SentenceTransformer model loading can exceed Railway's
+        HTTP gateway timeout.  Reserving the course lock before starting the
+        worker prevents duplicate builds while returning immediately to the UI.
+        """
+        course = self._require_course(course_id)
+        if course_id == "default":
+            raise HTTPException(status_code=400, detail="预置课程资料不可修改，如需新资料请创建课程")
+        if course.status == "building" or not self._lock(course_id).acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="课程正在构建，禁止重复构建")
+
+        files_dir = self._course_dir(course_id) / "source_files"
+        files = [item for item in files_dir.iterdir() if item.is_file()] if files_dir.exists() else []
+        if not files:
+            self._lock(course_id).release()
+            self.course_store.set_status(course_id, "failed")
+            self._errors[course_id] = "构建前至少需要一份资料"
+            return BuildStatus(course_id=course_id, status="failed", error=self._errors[course_id])
+
+        self.course_store.set_status(course_id, "building")
+        worker = threading.Thread(
+            target=self._build_in_background,
+            args=(course_id,),
+            name=f"course-build-{course_id}",
+            daemon=True,
+        )
+        worker.start()
+        return BuildStatus(course_id=course_id, status="building")
+
+    def _build_in_background(self, course_id: str) -> None:
+        try:
+            self._build_locked(course_id)
+        finally:
+            self._lock(course_id).release()
+
+    def _build_locked(self, course_id: str) -> BuildStatus:
+        """Run the existing build body while the caller owns the course lock."""
+        course = self._require_course(course_id)
+        try:
+            files = [item for item in (self._course_dir(course_id) / "source_files").iterdir() if item.is_file()] if (self._course_dir(course_id) / "source_files").exists() else []
+            if not files:
+                self.course_store.set_status(course_id, "failed")
+                self._errors[course_id] = "构建前至少需要一份资料"
+                return BuildStatus(course_id=course_id, status="failed", error=self._errors[course_id])
+            extracted_dir = self._course_dir(course_id) / "extracted"
+            vector_dir = self._course_dir(course_id) / "vector_db"
+            if extracted_dir.exists():
+                shutil.rmtree(extracted_dir)
+            if vector_dir.exists():
+                shutil.rmtree(vector_dir)
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+            chunks: list[dict[str, object]] = []
+            failures: list[str] = []
+            for path in files:
+                try:
+                    parsed = parse_material_file(path)
+                    if not parsed.extracted_text.strip():
+                        failures.append(f"{path.name}：未提取到有效文本")
+                        continue
+                    (extracted_dir / f"{path.stem}.txt").write_text(parsed.extracted_text, encoding="utf-8")
+                    for chunk in split_text(parsed.extracted_text, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP):
+                        chunk["source_file"] = path.name
+                        chunks.append(chunk)
+                except Exception as error:
+                    failures.append(f"{path.name}：{error}")
+            if not chunks:
+                raise ValueError("没有资料提取出有效文本或索引")
+            vector_dir.mkdir(parents=True, exist_ok=True)
+            index = build_index(encode_chunks(chunks, DEFAULT_MODEL))
+            save_faiss_index(index, vector_dir / "course.index")
+            save_chunks_mapping(chunks, vector_dir / "chunks.pkl")
+            (vector_dir / "source_mapping.json").write_text(
+                json.dumps({str(i): {"source_file": c.get("source_file"), "page": c.get("page")} for i, c in enumerate(chunks)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            self._errors.pop(course_id, None)
+            self.course_store.set_status(course_id, "ready")
+            return BuildStatus(course_id=course_id, status="ready", error=("；".join(failures) if failures else None))
+        except Exception as error:
+            self.course_store.set_status(course_id, "failed")
+            self._errors[course_id] = f"知识库构建失败：{error}"
+            return BuildStatus(course_id=course_id, status="failed", error=self._errors[course_id])
+
     def status(self, course_id: str) -> BuildStatus:
         course = self._require_course(course_id)
         return BuildStatus(course_id=course_id, status=course.status, error=self._errors.get(course_id))
@@ -247,7 +332,7 @@ def delete_material(course_id: str, material_id: str, service: CourseMaterialSer
 
 @router.post("/build", response_model=BuildStatus, status_code=202)
 def build_materials(course_id: str, service: CourseMaterialService = Depends(get_material_service)) -> BuildStatus:
-    return service.build(course_id)
+    return service.start_build(course_id)
 
 
 @router.get("/build-status", response_model=BuildStatus)

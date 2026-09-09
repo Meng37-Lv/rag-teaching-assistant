@@ -620,10 +620,19 @@ async function rebuildCourse() {
   courseLoading.value = true;
   courseError.value = "";
   try {
-    const status = await buildCourse(selectedCourse.value.id);
+    const courseId = selectedCourse.value.id;
+    let status = await buildCourse(courseId);
+    if (status.status === "building") {
+      courseNotice.value = "正在解析资料并构建知识库，请稍候...";
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        status = await getBuildStatus(courseId);
+        if (status.status !== "building") break;
+      }
+    }
     courseNotice.value =
       status.error ||
-      (status.status === "ready" ? "知识库构建完成。" : "知识库构建失败。");
+      (status.status === "ready" ? "知识库构建完成。" : "知识库构建失败，请查看错误信息后重试。");
     await openCourse(selectedCourse.value.id);
   } catch (error) {
     courseError.value = error instanceof Error ? error.message : "构建失败";
