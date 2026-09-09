@@ -61,6 +61,24 @@ class CourseMaterialService:
             raise HTTPException(status_code=404, detail="课程不存在")
         return course
 
+    def _recover_stale_build(self, course_id: str):
+        """Recover a persisted ``building`` flag after a process restart."""
+        course = self.course_store.get(course_id)
+        if course is None or course.status != "building":
+            return course
+        lock = self._lock(course_id)
+        if not lock.acquire(blocking=False):
+            return course
+        try:
+            latest = self.course_store.get(course_id)
+            if latest is not None and latest.status == "building":
+                self.course_store.set_status(course_id, "failed")
+                self._errors[course_id] = "上一次知识库构建未完成，请重新开始构建。"
+                return self.course_store.get(course_id)
+            return latest
+        finally:
+            lock.release()
+
     def list_materials(self, course_id: str) -> list[MaterialInfo]:
         self._require_course(course_id)
         directory = self._course_dir(course_id) / "source_files"
@@ -183,7 +201,7 @@ class CourseMaterialService:
         HTTP gateway timeout.  Reserving the course lock before starting the
         worker prevents duplicate builds while returning immediately to the UI.
         """
-        course = self._require_course(course_id)
+        course = self._recover_stale_build(course_id) or self._require_course(course_id)
         if course_id == "default":
             raise HTTPException(status_code=400, detail="预置课程资料不可修改，如需新资料请创建课程")
         if course.status == "building" or not self._lock(course_id).acquire(blocking=False):
@@ -262,7 +280,7 @@ class CourseMaterialService:
             return BuildStatus(course_id=course_id, status="failed", error=self._errors[course_id])
 
     def status(self, course_id: str) -> BuildStatus:
-        course = self._require_course(course_id)
+        course = self._recover_stale_build(course_id) or self._require_course(course_id)
         return BuildStatus(course_id=course_id, status=course.status, error=self._errors.get(course_id))
 
 class CourseSourceMapper:
