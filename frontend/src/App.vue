@@ -9,6 +9,7 @@ import {
   deleteMaterial,
   evaluateAnswer,
   generatePresentationQuestions,
+  previewPresentationMaterials,
   getAnalytics,
   getBuildStatus,
   getHistoryEvent,
@@ -35,6 +36,20 @@ const revealedOptimizedQuestions = ref([]);
 const revealedPresentationQuestions = ref([]);
 const presentationFiles = ref([]);
 const presentationText = ref("");
+const excludedPresentationFiles = ref([]);
+const includePresentationText = ref(true);
+const materialPreviews = ref([]);
+const previewLoading = ref(false);
+async function previewCurrentMaterials() {
+  previewLoading.value = true;
+  errorMessage.value = "";
+  try {
+    const data = await previewPresentationMaterials(presentationFiles.value.filter(file => !excludedPresentationFiles.value.includes(file)), includePresentationText.value ? presentationText.value : "", teachingCourseId.value);
+    materialPreviews.value = data.materials;
+  } catch (error) { errorMessage.value = error instanceof Error ? error.message : "材料预览失败"; }
+  finally { previewLoading.value = false; }
+}
+
 const fileInput = ref(null);
 const courses = ref([]);
 const selectedCourse = ref(null);
@@ -225,7 +240,7 @@ const canSubmit = computed(() => {
   if (!teachingCourseId.value) return false;
   if (isPresentationMode.value) {
     return (
-      (presentationFiles.value.length > 0 || hasPresentationText.value) &&
+      (presentationFiles.value.some(file => !excludedPresentationFiles.value.includes(file)) || (includePresentationText.value && hasPresentationText.value)) &&
       presentationText.value.length <= 30000
     );
   }
@@ -654,6 +669,9 @@ function clearCurrentSession() {
   if (isPresentationMode.value) {
     presentationFiles.value = [];
     presentationText.value = "";
+    materialPreviews.value = [];
+    excludedPresentationFiles.value = [];
+    includePresentationText.value = true;
     if (fileInput.value) fileInput.value.value = "";
   }
   resetResultState();
@@ -751,6 +769,7 @@ function setPresentationFiles(files) {
   }
 
   presentationFiles.value = combinedFiles;
+  materialPreviews.value = [];
   errorMessage.value = "";
 }
 
@@ -803,8 +822,8 @@ async function submit() {
       );
     } else {
       nextResult = await generatePresentationQuestions(
-        presentationFiles.value,
-        presentationText.value,
+        presentationFiles.value.filter(file => !excludedPresentationFiles.value.includes(file)),
+        includePresentationText.value ? presentationText.value : "",
         teachingCourseId.value,
       );
     }
@@ -1201,7 +1220,15 @@ async function submit() {
         <div v-if="historyDetail" class="history-detail">
           <h3>记录详情</h3>
           <p>匿名学生：{{ historyDetail.student_id || "未提供" }}</p>
-          <pre>{{ JSON.stringify(historyDetail.output_json, null, 2) }}</pre>
+          <template v-if="historyDetail.task_type === 'presentation_questions'">
+            <p v-if="historyDetail.output_json?.status === 'insufficient'">{{ historyDetail.output_json.notice }}</p>
+            <ul><li v-for="(item, index) in historyDetail.output_json?.questions || []" :key="index">
+              {{ item.question }}<p v-if="item.basis_summary">针对的材料内容：{{ item.basis_summary }}</p>
+              <p v-if="item.relation_explanation">{{ item.relation_explanation }}</p>
+              <details v-if="item.source_hints?.length"><summary>查看来源</summary><p v-for="(source, sourceIndex) in item.source_hints" :key="sourceIndex">{{ source.filename }} · {{ source.location }}</p></details>
+            </li></ul>
+          </template>
+          <p v-else>{{ historyDetail.output_json?.overall_evaluation || historyDetail.output_json?.question_evaluation?.evaluation || '已生成教学反馈' }}</p>
           <button
             type="button"
             class="text-button"
@@ -1475,6 +1502,7 @@ async function submit() {
                 :key="`${file.name}-${file.size}-${file.lastModified}-${index}`"
                 class="selected-file-card"
               >
+                <label><input type="checkbox" :checked="!excludedPresentationFiles.includes(file)" @change="excludedPresentationFiles = $event.target.checked ? excludedPresentationFiles.filter(item => item !== file) : [...excludedPresentationFiles, file]; materialPreviews = []" />用于本次提问</label>
                 <div class="selected-file-copy">
                   <strong>{{ file.name }}</strong>
                   <span>{{ formatFileSize(file.size) }}</span>
@@ -1499,9 +1527,18 @@ async function submit() {
               class="presentation-textarea"
               maxlength="30000"
               rows="10"
+              @input="materialPreviews = []"
               placeholder="粘贴汇报摘要、讲稿或材料内容，也可以通过左下角添加文件..."
             />
 
+            <label><input type="checkbox" v-model="includePresentationText" @change="materialPreviews = []" />使用输入文本</label>
+            <button type="button" class="text-button" :disabled="previewLoading || !canSubmit" @click="previewCurrentMaterials">{{ previewLoading ? "正在解析..." : "预览选定材料" }}</button>
+            <section v-if="materialPreviews.length" aria-label="材料预览">
+              <article v-for="(preview, index) in materialPreviews" :key="index">
+                <strong>{{ preview.filename }}</strong>
+                <p class="material-overview">{{ preview.overview }}</p>
+              </article>
+            </section>
             <div class="presentation-toolbar">
               <div class="presentation-toolbar-left">
                 <button
@@ -1607,7 +1644,8 @@ async function submit() {
       <template v-if="isPresentationMode && result.questions">
         <section class="result-section presentation-question-section">
           <h2>课程汇报提问</h2>
-          <div class="level-question-list">
+          <p v-if="result.status === 'insufficient'" class="message notice-message">{{ result.notice }}</p>
+          <div v-if="result.status !== 'insufficient'" class="level-question-list">
             <article
               v-for="(group, index) in presentationQuestionGroups"
               :key="group.level"
@@ -1633,6 +1671,9 @@ async function submit() {
                 <ol class="presentation-group-list">
                   <li v-for="item in group.questions" :key="item.question">
                     {{ item.question }}
+                    <p v-if="item.basis_summary" class="question-basis">针对的材料内容：{{ item.basis_summary }}</p>
+                    <p v-if="item.relation_explanation" class="question-basis">{{ item.relation_explanation }}</p>
+                    <details v-if="item.source_hints?.length"><summary>查看来源</summary><p v-for="(source, sourceIndex) in item.source_hints" :key="sourceIndex">{{ source.filename }} · {{ source.location }}</p></details>
                   </li>
                 </ol>
               </div>
@@ -1905,6 +1946,10 @@ async function submit() {
           </button>
         </div>
         <p><strong>功能：</strong>{{ historyDetail.task_type }}</p>
+        <ul v-if="historyDetail.task_type === 'presentation_questions'">
+          <li v-for="(item, index) in historyDetail.output_json?.questions || []" :key="index">{{ item.question }}<p v-if="item.basis_summary">针对的材料内容：{{ item.basis_summary }}</p><p v-if="item.relation_explanation">{{ item.relation_explanation }}</p><details v-if="item.source_hints?.length"><summary>查看来源</summary><p v-for="(source, sourceIndex) in item.source_hints" :key="sourceIndex">{{ source.filename }} · {{ source.location }}</p></details></li>
+        </ul>
+        <p v-if="historyDetail.output_json?.status === 'insufficient'">{{ historyDetail.output_json.notice }}</p>
         <p>
           <strong>时间：</strong
           >{{ formatHistoryTime(historyDetail.created_at) }}

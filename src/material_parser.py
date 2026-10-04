@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from uuid import uuid4
 import re
 
 from docx import Document
@@ -23,12 +24,22 @@ class MaterialParseError(ValueError):
 
 
 @dataclass(frozen=True)
+class MaterialSegment:
+    file_id: str
+    filename: str
+    segment_id: str
+    location: str
+    text: str
+
+
+@dataclass(frozen=True)
 class ParsedMaterial:
     material_name: str
     material_type: str
     extracted_text: str
+    segments: tuple[MaterialSegment, ...] = ()
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -48,7 +59,8 @@ def parse_material_file(file_path: str | Path) -> ParsedMaterial:
         elif path.suffix.lower() == ".docx":
             extracted_text = _extract_docx(path)
         elif path.suffix.lower() == ".pdf":
-            extracted_text = _clean_pdf_text("\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages))
+            pages = [page.extract_text() or "" for page in PdfReader(str(path)).pages]
+            extracted_text = "\n\n".join(f"===== 第{i}页 =====\n{text}" for i, text in enumerate(pages, 1))
         else:
             extracted_text = _extract_text_file(path)
     except MaterialParseError:
@@ -56,10 +68,33 @@ def parse_material_file(file_path: str | Path) -> ParsedMaterial:
     except Exception:
         raise MaterialParseError("材料解析失败，请确认文件未损坏且格式正确。") from None
 
+    segments = segment_text(extracted_text, path.name, material_type)
+    if material_type in {"PPTX", "PDF"}:
+        file_id = uuid4().hex
+        located = []
+        if material_type == "PPTX":
+            page_texts = ["\n".join(getattr(shape, "text", "") for shape in slide.shapes) for slide in Presentation(str(path)).slides]
+        else:
+            page_texts = pages
+        for page_no, page_text in enumerate(page_texts, 1):
+            for value in page_text.splitlines():
+                if value.strip() and not re.fullmatch(r"=+.*=+", value.strip()):
+                    located.append(MaterialSegment(file_id, path.name, f"{file_id}:{len(located)+1}", f"第{page_no}页", value.strip()))
+        segments = tuple(located)
+    if material_type == "DOCX":
+        doc = Document(str(path))
+        file_id = uuid4().hex
+        blocks = [(f"第{i}段", para.text.strip()) for i, para in enumerate(doc.paragraphs, 1) if para.text.strip()]
+        for ti, table in enumerate(doc.tables, 1):
+            for ri, row in enumerate(table.rows, 1):
+                value = "\t".join(cell.text.strip() for cell in row.cells)
+                if value.strip(): blocks.append((f"表{ti}第{ri}行", value))
+        segments = tuple(MaterialSegment(file_id, path.name, f"{file_id}:{i}", loc, value) for i, (loc, value) in enumerate(blocks, 1))
     return ParsedMaterial(
         material_name=path.name,
         material_type=material_type,
         extracted_text=extracted_text,
+        segments=segments,
     )
 
 
@@ -88,6 +123,7 @@ def parse_text_material(
         material_name=safe_name,
         material_type="纯文本",
         extracted_text=text,
+        segments=segment_text(text, safe_name, "纯文本"),
     )
 
 
@@ -123,3 +159,19 @@ def _extract_text_file(path: Path) -> str:
         except UnicodeDecodeError:
             continue
     raise MaterialParseError("文本文件编码无法识别，请将文件保存为 UTF-8。")
+
+
+def segment_text(text: str, filename: str, material_type: str) -> tuple[MaterialSegment, ...]:
+    file_id = uuid4().hex
+    segments = []
+    page = None
+    for line_no, line in enumerate(text.splitlines(), 1):
+        header = re.fullmatch(r"===== 第(\d+)页 =====", line.strip())
+        if header and material_type in {"PPTX", "PDF"}:
+            page = int(header.group(1))
+            continue
+        if not line.strip():
+            continue
+        location = f"第{page}页" if page is not None else f"第{line_no}行"
+        segments.append(MaterialSegment(file_id, filename, f"{file_id}:{len(segments)+1}", location, line.strip()))
+    return tuple(segments)

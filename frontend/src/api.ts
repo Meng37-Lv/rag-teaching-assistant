@@ -289,3 +289,12 @@ async function requestJson<T>(
   }
   return parseResponse<T>(response);
 }
+
+
+export function previewPresentationMaterials(files: File[], text: string, courseId: string): Promise<{ materials: Array<{ filename: string; overview: string }> }> {
+  const form = new FormData();
+  files.forEach(file => form.append("files", file));
+  if (text.trim()) form.append("text", text.trim());
+  form.append("course_id", courseId);
+  return postForm("/api/presentation-preview", form);
+}

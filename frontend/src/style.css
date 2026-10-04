@@ -494,3 +494,6 @@ footer { padding: 34px 0 0; color: #819094; font-size: 12px; text-align: center;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.material-overview { white-space: pre-wrap; max-height: 240px; overflow: auto; overflow-wrap: anywhere; }
+.question-basis { color: #607579; font-size: 14px; line-height: 1.7; }

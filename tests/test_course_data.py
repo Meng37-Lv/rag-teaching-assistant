@@ -66,10 +66,14 @@ class CourseApiTests(unittest.TestCase):
             ).status_code,
             400,
         )
-        self.assertEqual(
-            self.client.post("/api/presentation-questions", data={"course_id": course_id, "text": "材料"}).status_code,
-            400,
-        )
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        runtime = SimpleNamespace(service=SimpleNamespace(generate=lambda material: SimpleNamespace(data={"status": "insufficient", "notice": "缺少汇报方法和结果。", "questions": []})))
+        with patch("src.web_api._get_presentation_runtime", return_value=runtime):
+            self.assertEqual(
+                self.client.post("/api/presentation-questions", data={"course_id": course_id, "text": "材料"}).status_code,
+                200,
+            )
 
     def test_field_validation(self) -> None:
         self.assertEqual(self.client.post("/api/courses", json={"name": "  "}).status_code, 422)

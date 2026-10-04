@@ -57,6 +57,9 @@ export interface QuestionOptimizeResponse {
 }
 
 export interface PresentationQuestion {
+  basis_summary?: string;
+  relation_explanation?: string;
+  source_hints?: Array<{ filename: string; location: string }>;
   level: QuestionLevel;
   label: "简单" | "中等" | "困难";
   score: 60 | 80 | 100;
@@ -64,6 +67,8 @@ export interface PresentationQuestion {
 }
 
 export interface PresentationQuestionsResponse {
+  status?: "ready" | "insufficient";
+  notice?: string;
   questions: PresentationQuestion[];
 }
 

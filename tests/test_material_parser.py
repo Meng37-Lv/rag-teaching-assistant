@@ -15,6 +15,49 @@ from src.material_parser import (
 
 
 class MaterialParserTests(unittest.TestCase):
+    def test_ppt_marker_text_cannot_forge_page_number(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "location.pptx"
+            presentation = Presentation()
+            slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+            slide.shapes.title.text = "===== 第999页 ====="
+            slide.placeholders[1].text = "真实内容仍然位于第一张幻灯片"
+            presentation.save(path)
+            result = parse_material_file(path)
+            self.assertTrue(result.segments)
+            self.assertTrue(all(seg.location == "第1页" for seg in result.segments))
+
+    def test_pdf_actual_page_including_empty_page(self):
+        from io import BytesIO
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.pdfgen import canvas
+        with tempfile.TemporaryDirectory() as directory:
+            stream = BytesIO()
+            draw = canvas.Canvas(stream)
+            draw.drawString(30, 700, "First page content")
+            draw.showPage()
+            draw.drawString(30, 700, "Third page content")
+            draw.save()
+            reader = PdfReader(stream)
+            writer = PdfWriter()
+            writer.add_page(reader.pages[0])
+            writer.add_blank_page(width=595, height=842)
+            writer.add_page(reader.pages[1])
+            path = Path(directory) / "pages.pdf"
+            writer.write(path)
+            result = parse_material_file(path)
+            self.assertEqual([seg.location for seg in result.segments], ["第1页", "第3页"])
+
+    def test_docx_blank_paragraph_does_not_shift_location(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "paragraphs.docx"
+            document = Document()
+            document.add_paragraph("")
+            document.add_paragraph("这是第二段的材料内容")
+            document.save(path)
+            result = parse_material_file(path)
+            self.assertEqual(result.segments[0].location, "第2段")
+
     def test_parse_pptx(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "最小汇报.pptx"
@@ -66,7 +109,7 @@ class MaterialParserTests(unittest.TestCase):
         result = parse_text_material("纯文本正文", "课堂汇报")
 
         self.assertEqual(
-            result.to_dict(),
+            {key: value for key, value in result.to_dict().items() if key != "segments"},
             {
                 "material_name": "课堂汇报",
                 "material_type": "纯文本",

@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.course_data import CourseStore, get_course_store
+from src.report_question_service import public_presentation_result
 
 
 class TeachingEvent(BaseModel):
@@ -168,6 +169,10 @@ def _input_summary(event: TeachingEvent) -> str:
 
 def _result_summary(event: TeachingEvent) -> str:
     output = event.output_json if isinstance(event.output_json, dict) else {}
+    if event.task_type == "presentation_questions":
+        output = public_presentation_result(output)
+    if output.get("status") == "insufficient":
+        return str(output.get("notice") or "材料不足")
     block = output.get("question_evaluation", output)
     if isinstance(block, dict) and block.get("floor_applied"):
         return f"原始总分{block.get('raw_score')}，按最低分规则计60分"
@@ -176,7 +181,7 @@ def _result_summary(event: TeachingEvent) -> str:
         return text[:500]
     questions = output.get("questions")
     if isinstance(questions, list):
-        readable = [str(item.get("question") if isinstance(item, dict) else item).strip() for item in questions[:3]]
+        readable = [str((str(item.get("question", "")) + ("（针对的内容：" + item["basis_summary"] + "）" if item.get("basis_summary") else "")) if isinstance(item, dict) else item).strip() for item in questions[:3]]
         return "；".join(item for item in readable if item)[:500]
     issues = output.get("issues")
     if isinstance(issues, list):
@@ -204,7 +209,7 @@ def export_history_csv(course_id: str, task_type: str | None = None, created_fro
     if total == 0:
         raise HTTPException(status_code=404, detail="暂无可导出历史")
     output = io.StringIO(); output.write("\ufeff"); writer = csv.writer(output)
-    writer.writerow(["时间", "功能", "问题/输入", "结果摘要", "score", "level", "课程依据"])
+    writer.writerow(["时间", "功能", "问题/输入", "结果摘要", "成绩", "等级", "课程依据"])
     for event in events:
         writer.writerow([event.created_at, TASK_NAMES.get(event.task_type, event.task_type), _input_summary(event), _result_summary(event), event.score if event.score is not None else "", event.level or "", _basis_summary(event)])
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="teaching-history-{course_id}.csv"'})
@@ -214,7 +219,7 @@ def export_history_csv(course_id: str, task_type: str | None = None, created_fro
 def list_history(course_id: str, task_type: str | None = None, created_from: str | None = None, created_to: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), store: CourseStore = Depends(get_course_store), history: TeachingHistoryStore = Depends(get_history_store)) -> dict:
     _ensure_course(course_id, store)
     events, total = history.list(course_id, task_type, created_from, created_to, page, page_size)
-    return {"items": [event.model_dump() for event in events], "total": total, "page": page, "page_size": page_size}
+    return {"items": [_public_event(event) for event in events], "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/{event_id}", response_model=TeachingEvent)
@@ -223,7 +228,7 @@ def get_history_event(course_id: str, event_id: str, store: CourseStore = Depend
     event = history.get(course_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="历史记录不存在")
-    return event
+    return TeachingEvent.model_validate(_public_event(event))
 
 
 @router.delete("/{event_id}", status_code=204)
@@ -237,3 +242,10 @@ def delete_history_event(course_id: str, event_id: str, store: CourseStore = Dep
 def clear_history(course_id: str, store: CourseStore = Depends(get_course_store), history: TeachingHistoryStore = Depends(get_history_store)) -> dict[str, int]:
     _ensure_course(course_id, store)
     return {"deleted": history.clear(course_id)}
+
+
+def _public_event(event: TeachingEvent) -> dict:
+    visible = event.model_dump()
+    if event.task_type == "presentation_questions":
+        visible["output_json"] = public_presentation_result(event.output_json)
+    return visible

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
 import re
 import sys
@@ -10,7 +10,7 @@ from threading import Lock
 from time import perf_counter
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -43,6 +43,8 @@ from src.rag_service import ModelOutputError, RAGService
 from src.report_question_service import (
     ReportQuestionOutputError,
     ReportQuestionService,
+    public_presentation_result,
+    readable_material_text,
 )
 from src.source_mapper import (
     OriginalSourceRetriever,
@@ -183,13 +185,22 @@ class PresentationQuestionItem(StrictResponseModel):
     label: Literal["简单", "中等", "困难"]
     score: Literal[60, 80, 100]
     question: str = Field(min_length=1, max_length=60)
+    source_hints: list[dict[str, str]] = Field(default_factory=list)
+    basis_summary: str | None = None
+    relation_explanation: str | None = None
 
 
 class PresentationQuestionsResponse(StrictResponseModel):
-    questions: list[PresentationQuestionItem] = Field(min_length=9, max_length=9)
+    status: Literal["ready", "insufficient"] = "ready"
+    notice: str = ""
+    questions: list[PresentationQuestionItem] = Field(max_length=9)
 
     @model_validator(mode="after")
     def validate_three_questions_per_level(self) -> "PresentationQuestionsResponse":
+        if self.status == "insufficient":
+            if self.questions or not self.notice.strip():
+                raise ValueError("材料不足时必须说明原因且无问题")
+            return self
         expected = [
             (level, label, score)
             for level, label, score in OPTIMIZED_QUESTION_LEVELS
@@ -460,6 +471,7 @@ def _combine_presentation_materials(materials: list[ParsedMaterial]) -> ParsedMa
         material_name="上传文件与补充文本",
         material_type="组合材料",
         extracted_text=combined_text,
+        segments=tuple(seg for material in valid_materials for seg in material.segments),
     )
 
 
@@ -515,11 +527,13 @@ async def _parse_uploaded_material(upload: UploadFile) -> tuple[ParsedMaterial, 
             material_name=original_name,
             material_type=parsed.material_type,
             extracted_text=parsed.extracted_text,
+            segments=tuple(replace(seg, filename=original_name) for seg in parsed.segments),
         ),
         len(content),
     )
 
 
+@app.post("/api/presentation-preview")
 @app.post(
     "/api/presentation-questions",
     response_model=PresentationQuestionsResponse,
@@ -527,7 +541,8 @@ async def _parse_uploaded_material(upload: UploadFile) -> tuple[ParsedMaterial, 
     description="使用multipart/form-data提交材料；files最多10个，可与text单独或同时提供。",
 )
 async def presentation_questions(
-    course_id: Annotated[str, Form(description="当前仅支持 default")],
+    request: Request,
+    course_id: Annotated[str, Form(description="本次汇报所属课程")],
     files: Annotated[
         list[UploadFile] | None,
         File(description="可选；最多10个PPTX、DOCX、Markdown或TXT文件；单文件50MB、合计100MB；PPTX单个最多40页"),
@@ -538,25 +553,9 @@ async def presentation_questions(
     ] = None,
     course_store: CourseStore = Depends(get_course_store),
 ) -> dict[str, object]:
-    course = _require_supported_course(course_id, course_store)
+    if course_store.get(course_id) is None:
+        raise HTTPException(status_code=404, detail="课程不存在")
     started_at = perf_counter()
-    if course_id != "default":
-        extracted_dir = course_directory(course_id) / "extracted"
-        extracted_materials = [
-            ParsedMaterial(path.name, "课程资料", path.read_text(encoding="utf-8"))
-            for path in sorted(extracted_dir.glob("*.txt"))
-            if path.is_file()
-        ] if extracted_dir.exists() else []
-        material = _combine_presentation_materials(extracted_materials)
-        try:
-            result = _get_presentation_runtime().service.generate(material)
-            payload = result.data
-            _save_teaching_event(course_store, course_id, "presentation_questions", {"course_id": course_id, "text_length": sum(len(item.extracted_text) for item in extracted_materials)}, payload, started_at)
-            return payload
-        except HTTPException:
-            raise
-        except Exception as error:
-            raise _safe_service_error(error) from None
     uploads = files or []
     if not uploads and (text is None or not text.strip()):
         raise HTTPException(
@@ -588,14 +587,21 @@ async def presentation_questions(
     if text is not None and text.strip():
         materials.append(parse_text_material(text.strip(), "补充纯文本材料"))
     material = _combine_presentation_materials(materials)
+    if request.url.path == "/api/presentation-preview":
+        return {"materials": [
+            {"filename": item.material_name, "overview": readable_material_text("\n".join(seg.text for seg in item.segments))[:2000]}
+            for item in materials
+        ]}
 
     try:
         result = _get_presentation_runtime().service.generate(material)
         payload = result.data
         _save_teaching_event(course_store, course_id, "presentation_questions", {"course_id": course_id, "file_count": len(uploads), "text_length": len(text or "")}, payload, started_at)
-        return payload
+        return public_presentation_result(payload)
     except HTTPException:
         raise
+    except ReportQuestionOutputError:
+        raise HTTPException(status_code=502, detail="汇报问题生成结果未通过校验，请重试；这不代表材料不足。") from None
     except Exception as error:
         raise _safe_service_error(error) from None
 
