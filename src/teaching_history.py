@@ -168,6 +168,9 @@ def _input_summary(event: TeachingEvent) -> str:
 
 def _result_summary(event: TeachingEvent) -> str:
     output = event.output_json if isinstance(event.output_json, dict) else {}
+    block = output.get("question_evaluation", output)
+    if isinstance(block, dict) and block.get("floor_applied"):
+        return f"原始总分{block.get('raw_score')}，按最低分规则计60分"
     text = _first_text(output, ("optimized_question", "evaluation", "feedback", "answer", "summary"))
     if text:
         return text[:500]

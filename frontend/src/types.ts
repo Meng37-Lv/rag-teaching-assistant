@@ -1,11 +1,31 @@
 export type QuestionEvaluationLevel = "简单" | "思考型" | "深度型";
 export type QuestionLevel = "easy" | "medium" | "hard";
 
+export interface ScoreEvidence {
+  source: string;
+  quote: string;
+}
+
+export interface ScoreBreakdownItem {
+  key: string;
+  label: string;
+  max_score: number;
+  anchor: string;
+  score: number;
+  reason: string;
+  evidence: ScoreEvidence[];
+}
+
 export interface QuestionEvaluation {
+  raw_score?: number;
+  floor_applied?: boolean;
   score: number;
   level: QuestionEvaluationLevel;
   evaluation: string;
   suggestion: string;
+  score_interpretation: string;
+  evidence_status: "sufficient" | "insufficient";
+  score_breakdown: ScoreBreakdownItem[];
 }
 
 export interface OptimizedQuestion {
@@ -48,8 +68,23 @@ export interface PresentationQuestionsResponse {
 }
 
 export interface AnswerEvaluateResponse {
+  raw_score?: number;
+  floor_applied?: boolean;
   task_type: "answer_evaluate";
-  [key: string]: unknown;
+  question: string;
+  student_answer: string;
+  score: number;
+  level: QuestionEvaluationLevel;
+  score_interpretation?: string;
+  evidence_status?: "sufficient" | "insufficient";
+  score_breakdown?: ScoreBreakdownItem[];
+  overall_evaluation: string;
+  strengths: string[];
+  issues: Array<{ type: string; description: string; evidence_or_reason: string }>;
+  improvement_suggestions: string[];
+  improved_answer: string;
+  course_basis: CourseBasis[];
+  insufficiency_notice: string;
 }
 
 export interface Course {

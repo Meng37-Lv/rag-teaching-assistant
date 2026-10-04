@@ -86,17 +86,41 @@ class CourseBasisItem(StrictResponseModel):
     reason: str
 
 
+class EvidenceItem(StrictResponseModel):
+    source: str
+    quote: str
+
+
+class ScoreBreakdownItem(StrictResponseModel):
+    key: str
+    label: str
+    max_score: int = Field(ge=1, le=100)
+    anchor: str = Field(min_length=1)
+    score: int = Field(ge=0, le=100)
+    reason: str = Field(min_length=1)
+    evidence: list[EvidenceItem]
+
+
 class QuestionEvaluation(StrictResponseModel):
+    raw_score: int = Field(ge=0, le=100)
+    floor_applied: bool
     score: int = Field(ge=60, le=100)
     level: Literal["简单", "思考型", "深度型"]
     evaluation: str = Field(min_length=1)
     suggestion: str = Field(min_length=1)
+    score_interpretation: str = Field(min_length=1)
+    evidence_status: Literal["sufficient", "insufficient"]
+    score_breakdown: list[ScoreBreakdownItem] = Field(min_length=4, max_length=4)
 
     @model_validator(mode="after")
     def validate_level_matches_score(self) -> "QuestionEvaluation":
         expected = "简单" if self.score <= 75 else "思考型" if self.score <= 90 else "深度型"
         if self.level != expected:
             raise ValueError(f"level 必须与 score 对应为“{expected}”")
+        if sum(item.score for item in self.score_breakdown) != self.raw_score:
+            raise ValueError("raw_score 必须等于分项之和")
+        if self.score != max(60, self.raw_score) or self.floor_applied != (self.raw_score < 60):
+            raise ValueError("保底成绩或保底标记不正确")
         return self
 
 
@@ -121,6 +145,37 @@ class QuestionOptimizeResponse(StrictResponseModel):
     deep_questions: list[DeepQuestionItem] = Field(min_length=2, max_length=2)
     course_basis: list[CourseBasisItem] = Field(max_length=2)
     insufficiency_notice: str
+
+
+class AnswerEvaluateResponse(StrictResponseModel):
+    raw_score: int = Field(ge=0, le=100)
+    floor_applied: bool
+    task_type: Literal["answer_evaluate"]
+    question: str
+    student_answer: str
+    score: int = Field(ge=60, le=100)
+    level: Literal["简单", "思考型", "深度型"]
+    score_interpretation: str = Field(min_length=1)
+    evidence_status: Literal["sufficient", "insufficient"]
+    score_breakdown: list[ScoreBreakdownItem] = Field(min_length=4, max_length=4)
+    overall_evaluation: str
+    strengths: list[str]
+    issues: list[dict[str, str]]
+    improvement_suggestions: list[str]
+    improved_answer: str
+    course_basis: list[CourseBasisItem] = Field(max_length=2)
+    insufficiency_notice: str
+
+    @model_validator(mode="after")
+    def validate_level_and_total(self) -> "AnswerEvaluateResponse":
+        expected = "简单" if self.score <= 75 else "思考型" if self.score <= 90 else "深度型"
+        if self.level != expected:
+            raise ValueError(f"level 必须与 score 对应为“{expected}”")
+        if sum(item.score for item in self.score_breakdown) != self.raw_score:
+            raise ValueError("raw_score 必须等于分项之和")
+        if self.score != max(60, self.raw_score) or self.floor_applied != (self.raw_score < 60):
+            raise ValueError("保底成绩或保底标记不正确")
+        return self
 
 
 class PresentationQuestionItem(StrictResponseModel):
@@ -359,7 +414,7 @@ def question_optimize(
         raise _safe_service_error(error) from None
 
 
-@app.post("/api/answer-evaluate")
+@app.post("/api/answer-evaluate", response_model=AnswerEvaluateResponse)
 def answer_evaluate(
     request: AnswerEvaluateRequest,
     course_store: CourseStore = Depends(get_course_store),
@@ -376,6 +431,7 @@ def answer_evaluate(
             runtime.settings.default_top_k,
         )
         payload = runtime.source_mapper.sanitize_value(result.data)
+        payload = AnswerEvaluateResponse.model_validate(payload).model_dump()
         _save_teaching_event(course_store, request.course_id, "answer_evaluate", request.model_dump(), payload, started_at)
         return payload
     except HTTPException:

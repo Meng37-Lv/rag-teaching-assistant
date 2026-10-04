@@ -1676,6 +1676,38 @@ async function submit() {
               </p>
             </div>
           </div>
+          <div
+            v-if="result.question_evaluation.score_breakdown?.length"
+            class="score-breakdown"
+          >
+            <h3>分项评分</h3>
+            <article
+              v-for="item in result.question_evaluation.score_breakdown"
+              :key="item.key"
+              class="score-breakdown-item"
+            >
+              <div class="score-breakdown-heading">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.score }}/{{ item.max_score }}分</span>
+              </div>
+              <small>评分锚点：{{ item.anchor }}</small>
+              <p>{{ formatCourseReferences(item.reason) }}</p>
+              <ul v-if="item.evidence?.length" class="score-evidence-list">
+                <li v-for="evidence in item.evidence" :key="`${evidence.source}-${evidence.quote}`">
+                  <strong>{{ formatCourseReferences(evidence.source) }}</strong>
+                  <span>“{{ formatCourseReferences(evidence.quote) }}”</span>
+                </li>
+              </ul>
+              <small v-else class="muted-text">当前检索片段不足以提供该项材料依据。</small>
+            </article>
+          </div>
+          <p class="score-interpretation">
+            {{ result.question_evaluation.score_interpretation }}
+            <span v-if="result.question_evaluation.floor_applied">原始总分{{ result.question_evaluation.raw_score }}，按最低分规则计60分。</span>
+            <span v-if="result.question_evaluation.evidence_status === 'insufficient'">
+              当前材料证据不足，未据此直接压低分数。
+            </span>
+          </p>
         </section>
 
         <section class="result-section">
@@ -1740,6 +1772,35 @@ async function submit() {
               ><strong class="evaluation-level">{{ result.level }}</strong>
             </div>
           </div>
+          <div v-if="result.score_breakdown?.length" class="score-breakdown">
+            <h3>分项评分</h3>
+            <article
+              v-for="item in result.score_breakdown"
+              :key="item.key"
+              class="score-breakdown-item"
+            >
+              <div class="score-breakdown-heading">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.score }}/{{ item.max_score }}分</span>
+              </div>
+              <small>评分锚点：{{ item.anchor }}</small>
+              <p>{{ formatCourseReferences(item.reason) }}</p>
+              <ul v-if="item.evidence?.length" class="score-evidence-list">
+                <li v-for="evidence in item.evidence" :key="`${evidence.source}-${evidence.quote}`">
+                  <strong>{{ formatCourseReferences(evidence.source) }}</strong>
+                  <span>“{{ formatCourseReferences(evidence.quote) }}”</span>
+                </li>
+              </ul>
+              <small v-else class="muted-text">当前检索片段不足以提供该项材料依据。</small>
+            </article>
+          </div>
+          <p v-if="result.score_interpretation" class="score-interpretation">
+            {{ result.score_interpretation }}
+            <span v-if="result.floor_applied">原始总分{{ result.raw_score }}，按最低分规则计60分。</span>
+            <span v-if="result.evidence_status === 'insufficient'">
+              当前材料证据不足，未据此直接压低分数。
+            </span>
+          </p>
         </section>
         <section class="result-section diagnosis-section">
           <h2>总体评价</h2>
@@ -1848,6 +1909,7 @@ async function submit() {
           <strong>时间：</strong
           >{{ formatHistoryTime(historyDetail.created_at) }}
         </p>
+        <p v-if="(historyDetail.output_json?.question_evaluation || historyDetail.output_json)?.floor_applied">原始总分{{ (historyDetail.output_json?.question_evaluation || historyDetail.output_json).raw_score }}，按最低分规则计60分。</p>
         <p><strong>输入摘要：</strong>{{ historySummary(historyDetail) }}</p>
         <p v-if="historyDetail.score !== null">
           <strong>评分：</strong>{{ historyDetail.score }}分

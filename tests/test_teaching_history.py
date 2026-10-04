@@ -60,6 +60,24 @@ class TeachingHistoryTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/courses/missing/history").status_code, 404)
         self.assertEqual(self.client.delete("/api/courses/missing/history").status_code, 404)
 
+    def test_legacy_event_without_breakdown_remains_readable(self) -> None:
+        event = self.history.add(
+            course_id=self.course.id,
+            task_type="answer_evaluate",
+            input_data={"question": "旧问题", "student_answer": "旧答案"},
+            output_data={
+                "task_type": "answer_evaluate",
+                "score": 72,
+                "level": "简单",
+                "course_basis": [],
+            },
+        )
+        response = self.client.get(f"/api/courses/{self.course.id}/history/{event.id}")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["score"], 72)
+        self.assertNotIn("score_breakdown", payload["output_json"])
+
 
 if __name__ == "__main__":
     unittest.main()

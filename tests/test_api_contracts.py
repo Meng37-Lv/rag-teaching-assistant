@@ -12,9 +12,19 @@ class ApiContractTests(unittest.TestCase):
         evaluation = QuestionEvaluation.model_validate(
             {
                 "score": 84,
+                "raw_score": 84,
+                "floor_applied": False,
                 "level": "思考型",
                 "evaluation": "需要解释机制和条件。",
                 "suggestion": "可加入比较与应用边界。",
+                "score_interpretation": "75分表示基本达标且有改进空间；不代表按批次强制调分。",
+                "evidence_status": "insufficient",
+                "score_breakdown": [
+                    {"key": "material_relevance", "label": "材料关联", "max_score": 25, "anchor": "锚点", "score": 20, "reason": "理由", "evidence": []},
+                    {"key": "thinking_value", "label": "思考价值", "max_score": 35, "anchor": "锚点", "score": 30, "reason": "理由", "evidence": []},
+                    {"key": "clarity", "label": "表达清晰", "max_score": 15, "anchor": "锚点", "score": 12, "reason": "理由", "evidence": []},
+                    {"key": "discussability", "label": "可讨论性", "max_score": 25, "anchor": "锚点", "score": 22, "reason": "理由", "evidence": []},
+                ],
             }
         )
         self.assertEqual(evaluation.level, "思考型")

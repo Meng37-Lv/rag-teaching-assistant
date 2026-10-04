@@ -67,10 +67,16 @@ def _knowledge_name(reason: str) -> str:
     return cleaned[:30] or "相关概念"
 
 
+def scoring_is_reliable(event) -> bool:
+    output = event.output_json if isinstance(event.output_json, dict) else {}
+    block = output.get("question_evaluation", output)
+    return not isinstance(block, dict) or block.get("evidence_status") != "insufficient"
+
+
 def calculate_statistics(events, course_name: str = "当前课程") -> dict:
     usage = Counter(event.task_type for event in events)
-    scores = [event.score for event in events if event.score is not None]
-    levels = Counter(event.level for event in events if event.level)
+    scores = [event.score for event in events if event.score is not None and scoring_is_reliable(event)]
+    levels = Counter(event.level for event in events if event.level and scoring_is_reliable(event))
     issues: Counter[str] = Counter()
     chapters: Counter[str] = Counter()
     knowledge: defaultdict[str, Counter[str]] = defaultdict(Counter)
@@ -89,7 +95,7 @@ def calculate_statistics(events, course_name: str = "当前课程") -> dict:
             match = re.search(r"第\s*([^章]+)章", source)
             if match:
                 chapters[f"第{match.group(1)}章"] += 1
-            if event.score is not None and event.score <= 75:
+            if scoring_is_reliable(event) and event.score is not None and event.score <= 75:
                 reason = str(item.get("reason") or "相关概念掌握不牢") if isinstance(item, dict) else "相关概念掌握不牢"
                 chapter_match = re.search(r"第\s*([^章]+)章", source)
                 chapter = f"第{chapter_match.group(1).strip()}章" if chapter_match else "课程综合"

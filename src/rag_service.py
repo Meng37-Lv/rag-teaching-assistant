@@ -10,10 +10,16 @@ from typing import Any
 from src.config import Settings
 from src.llm_client import LLMClient, LLMCompletion
 from src.prompts import (
+    ANSWER_SCORING_DIMENSIONS,
+    QUESTION_SCORING_DIMENSIONS,
+    SCORE_INTERPRETATION,
     build_answer_messages,
     build_json_repair_messages,
     build_question_messages,
     build_truncation_retry_messages,
+    enrich_breakdown,
+    level_for_score,
+    validate_evidence,
 )
 from src.retriever import CourseRetriever, RetrievedChunk, format_context
 
@@ -94,11 +100,64 @@ def _validate_course_basis(data: dict[str, Any], allowed_sources: set[str]) -> N
             raise ValueError(f"course_basis 使用了未提供的来源：{item['source']}")
 
 
+def _validate_scoring(
+    block: dict[str, Any],
+    dimensions: tuple[dict[str, Any], ...],
+    allowed_sources: set[str],
+    retrieved_chunks: list[RetrievedChunk] | None,
+    related_text: str,
+    insufficiency_notice: str,
+) -> int:
+    expected_fields = {
+        "score",
+        "level",
+        "evaluation",
+        "suggestion",
+        "score_interpretation",
+        "evidence_status",
+        "score_breakdown",
+    }
+    if set(block) != expected_fields:
+        raise ValueError("评分对象字段不完整或包含额外字段。")
+    if block["score_interpretation"] != SCORE_INTERPRETATION:
+        raise ValueError("score_interpretation 必须明确说明75分含义。")
+    if block["evidence_status"] not in {"sufficient", "insufficient"}:
+        raise ValueError("evidence_status 必须是 sufficient 或 insufficient。")
+    if not isinstance(insufficiency_notice, str):
+        raise ValueError("insufficiency_notice 必须是字符串。")
+    if block["evidence_status"] == "insufficient" and not insufficiency_notice.strip():
+        raise ValueError("证据不足时必须填写 insufficiency_notice。")
+    if block["evidence_status"] == "sufficient" and insufficiency_notice.strip():
+        raise ValueError("证据充分时 insufficiency_notice 必须为空。")
+    enriched, total = enrich_breakdown(block["score_breakdown"], dimensions)
+    required_evidence = block["evidence_status"] == "sufficient"
+    for item in enriched:
+        validate_evidence(
+            item["evidence"],
+            allowed_sources,
+            retrieved_chunks,
+            related_text,
+            required=required_evidence,
+        )
+    block["raw_score"] = total
+    block["score"] = max(60, total)
+    block["floor_applied"] = total < 60
+    block["level"] = level_for_score(block["score"])
+    if not isinstance(block["evaluation"], str) or not block["evaluation"].strip():
+        raise ValueError("评价说明不能为空。")
+    if not isinstance(block["suggestion"], str) or not block["suggestion"].strip():
+        raise ValueError("改进建议不能为空。")
+    block["score_breakdown"] = enriched
+    return total
+
+
 def validate_output(
     data: dict[str, Any],
     task_type: str,
     sources: list[str],
     compact_retry: bool = False,
+    retrieved_chunks: list[RetrievedChunk] | None = None,
+    related_text: str = "",
 ) -> None:
     if data.get("task_type") != task_type:
         raise ValueError(f"task_type 必须是 {task_type}。")
@@ -124,19 +183,16 @@ def validate_output(
         for name in ["original_question", "insufficiency_notice"]:
             _require_string(data, name)
         evaluation = data["question_evaluation"]
-        evaluation_fields = {"score", "level", "evaluation", "suggestion"}
-        if not isinstance(evaluation, dict) or set(evaluation) != evaluation_fields:
-            raise ValueError("question_evaluation 必须且只能包含 score、level、evaluation、suggestion。")
-        score = evaluation["score"]
-        if type(score) is not int or not 60 <= score <= 100:
-            raise ValueError("question_evaluation.score 必须是60至100的整数。")
-        expected_level = "简单" if score <= 75 else "思考型" if score <= 90 else "深度型"
-        if evaluation["level"] != expected_level:
-            raise ValueError(f"question_evaluation.level 必须与分数对应为“{expected_level}”。")
-        for name in ["evaluation", "suggestion"]:
-            value = evaluation[name]
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"question_evaluation.{name} 必须是非空字符串。")
+        if not isinstance(evaluation, dict):
+            raise ValueError("question_evaluation 必须是对象。")
+        _validate_scoring(
+            evaluation,
+            QUESTION_SCORING_DIMENSIONS,
+            allowed_sources,
+            retrieved_chunks,
+            related_text or str(data["original_question"]),
+            data["insufficiency_notice"],
+        )
         optimized = data["optimized_questions"]
         deep = data["deep_questions"]
         if not isinstance(optimized, list) or len(optimized) != 3:
@@ -164,6 +220,9 @@ def validate_output(
             "student_answer",
             "score",
             "level",
+            "score_interpretation",
+            "evidence_status",
+            "score_breakdown",
             "overall_evaluation",
             "strengths",
             "issues",
@@ -173,11 +232,6 @@ def validate_output(
             "insufficiency_notice",
         ]
         _require_fields(data, fields)
-        if not isinstance(data["score"], int) or not 60 <= data["score"] <= 100:
-            raise ValueError("score 必须是60至100的整数。")
-        expected_level = "简单" if data["score"] <= 75 else "思考型" if data["score"] <= 90 else "深度型"
-        if data["level"] != expected_level:
-            raise ValueError("level 必须与 score 对应。")
         for name in [
             "question",
             "student_answer",
@@ -203,6 +257,25 @@ def validate_output(
             raise ValueError("issues 最多包含 3 项。")
         if len(data["improved_answer"]) > 200:
             raise ValueError("improved_answer 必须控制在 200 个字符以内。")
+        answer_scoring_block = {
+            "score": data["score"],
+            "level": data["level"],
+            "evaluation": data["overall_evaluation"],
+            "suggestion": "；".join(data["improvement_suggestions"]) or "未提供额外建议",
+            "score_interpretation": data["score_interpretation"],
+            "evidence_status": data["evidence_status"],
+            "score_breakdown": data["score_breakdown"],
+        }
+        _validate_scoring(
+            answer_scoring_block,
+            ANSWER_SCORING_DIMENSIONS,
+            allowed_sources,
+            retrieved_chunks,
+            related_text or f"{data['question']}\n{data['student_answer']}",
+            data["insufficiency_notice"],
+        )
+        for key in ("score_breakdown", "raw_score", "score", "floor_applied", "level"):
+            data[key] = answer_scoring_block[key]
         for item in issues:
             if not isinstance(item, dict) or not all(
                 isinstance(item.get(name), str)
@@ -244,6 +317,7 @@ class RAGService:
         retry_max_tokens: int,
         started_at: float,
         retrieval_seconds: float,
+        related_text: str,
     ) -> RAGResult:
         sources = list(dict.fromkeys(chunk.source for chunk in chunks))
         llm_started_at = perf_counter()
@@ -269,7 +343,7 @@ class RAGService:
                     response.max_tokens,
                 )
             data = parse_json_output(response.content)
-            validate_output(data, task_type, sources)
+            validate_output(data, task_type, sources, retrieved_chunks=chunks, related_text=related_text)
         except (ModelOutputError, ValueError) as first_error:
             truncated = response.finish_reason == "length" or is_unterminated_json(first_error)
             if truncated:
@@ -293,7 +367,14 @@ class RAGService:
                     )
                 try:
                     data = parse_json_output(response.content)
-                    validate_output(data, task_type, sources, compact_retry=True)
+                    validate_output(
+                        data,
+                        task_type,
+                        sources,
+                        compact_retry=True,
+                        retrieved_chunks=chunks,
+                        related_text=related_text,
+                    )
                 except (ModelOutputError, ValueError) as retry_error:
                     if is_unterminated_json(retry_error):
                         raise ModelOutputError(
@@ -343,7 +424,14 @@ class RAGService:
             try:
                 if repaired:
                     data = parse_json_output(response.content)
-                    validate_output(data, task_type, sources, compact_retry=retried_original_task)
+                    validate_output(
+                        data,
+                        task_type,
+                        sources,
+                        compact_retry=retried_original_task,
+                        retrieved_chunks=chunks,
+                        related_text=related_text,
+                    )
             except (ModelOutputError, ValueError) as second_error:
                 raise ModelOutputError(
                     f"模型输出处理后仍不合规，finish_reason={response.finish_reason}：{second_error}",
@@ -395,6 +483,7 @@ class RAGService:
             retry_max_tokens=1100,
             started_at=started_at,
             retrieval_seconds=retrieval_seconds,
+            related_text=question,
         )
 
     def answer_evaluate(self, question: str, student_answer: str, top_k: int) -> RAGResult:
@@ -424,4 +513,5 @@ class RAGService:
             retry_max_tokens=1100,
             started_at=started_at,
             retrieval_seconds=retrieval_seconds,
+            related_text=f"{question}\n{student_answer}",
         )

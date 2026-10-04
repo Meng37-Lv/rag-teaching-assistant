@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.config import load_settings
 from src.course_data import CourseStore, get_course_store
 from src.llm_client import LLMClient
-from src.teaching_analytics import calculate_statistics
+from src.teaching_analytics import calculate_statistics, scoring_is_reliable
 from src.teaching_history import TeachingHistoryStore, get_history_store
 
 
@@ -58,7 +58,7 @@ class ReportExportRequest(BaseModel):
 
 def _representative_cases(events) -> list[dict]:
     cases = []
-    for event in events[:5]:
+    for event in [item for item in events if scoring_is_reliable(item)][:5]:
         input_data = event.input_json if isinstance(event.input_json, dict) else {}
         output_data = event.output_json if isinstance(event.output_json, dict) else {}
         cases.append({
