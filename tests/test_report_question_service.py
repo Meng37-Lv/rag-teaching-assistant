@@ -220,6 +220,8 @@ class ReportQuestionServiceTests(unittest.TestCase):
             runtime = SimpleNamespace(service=ReportQuestionService(self.settings, MockLLM()))
             try:
                 client = TestClient(app)
+                from tests.auth_helpers import login_test_client
+                login_test_client(client, store)
                 with patch("src.web_api._get_presentation_runtime", return_value=runtime), patch("src.web_api.course_directory", side_effect=AssertionError("不能回退课程extracted")):
                     preview = client.post("/api/presentation-preview", data={"course_id": one.id}, files=[("files", ("甲.txt", "本次文件解释模型方案和验证方法。".encode())), ("files", ("乙.md", "第二份材料说明数据指标和结果分析。".encode()))])
                     self.assertEqual(preview.status_code, 200)

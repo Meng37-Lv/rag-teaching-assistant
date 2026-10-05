@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.course_data import CourseStore, get_course_store
 from src.web_api import app
+from tests.auth_helpers import login_test_client
 
 
 class CourseApiTests(unittest.TestCase):
@@ -16,6 +17,7 @@ class CourseApiTests(unittest.TestCase):
         self.store = CourseStore(Path(self.temp_dir.name) / "courses.db")
         app.dependency_overrides[get_course_store] = lambda: self.store
         self.client = TestClient(app)
+        login_test_client(self.client, self.store)
 
     def tearDown(self) -> None:
         app.dependency_overrides.clear()

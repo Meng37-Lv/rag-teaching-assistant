@@ -28,11 +28,40 @@ async function getApiBaseUrl(): Promise<string> {
   return desktopApiBaseUrlPromise;
 }
 
+const SESSION_KEY = "teaching-account-session";
+export function clearSession(): void { sessionStorage.removeItem(SESSION_KEY); }
+async function authenticatedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const token = sessionStorage.getItem(SESSION_KEY);
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(url, { ...init, headers });
+  if (response.status === 401 && token && !url.endsWith("/api/auth/login")) {
+    clearSession();
+    window.dispatchEvent(new Event("account-session-expired"));
+  }
+  if (token && sessionStorage.getItem(SESSION_KEY) !== token) throw new Error("登录状态已变化，请重新操作。");
+  return response;
+}
+export interface Account { account_id: string; account_name: string; phone: string; }
+export function registerAccount(payload: { account_name: string; phone: string; password: string; confirm_password: string }): Promise<{ message: string; account: Account }> {
+  return postJson("/api/auth/register", payload);
+}
+export async function loginAccount(phone: string, password: string): Promise<Account> {
+  const result = await postJson<{ token: string; expires_at: number; account: Account }>("/api/auth/login", { phone, password });
+  sessionStorage.setItem(SESSION_KEY, result.token);
+  return result.account;
+}
+export function currentAccount(): Promise<Account> { return getJson("/api/auth/me"); }
+export async function logoutAccount(): Promise<void> {
+  try { await postJson("/api/auth/logout", {}); } finally { clearSession(); }
+}
+export function authUiConfig(): Promise<{ school_image_url: string }> { return getJson("/api/auth/ui-config"); }
+
 async function postJson<T>(path: string, body: object): Promise<T> {
   let response: Response;
   try {
     const apiBaseUrl = await getApiBaseUrl();
-    response = await fetch(`${apiBaseUrl}${path}`, {
+    response = await authenticatedFetch(`${apiBaseUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -48,7 +77,7 @@ async function postForm<T>(path: string, formData: FormData): Promise<T> {
   let response: Response;
   try {
     const apiBaseUrl = await getApiBaseUrl();
-    response = await fetch(`${apiBaseUrl}${path}`, {
+    response = await authenticatedFetch(`${apiBaseUrl}${path}`, {
       method: "POST",
       body: formData,
     });
@@ -217,7 +246,7 @@ export async function downloadHistoryCsv(
   courseId: string,
   params: Record<string, string | undefined> = {},
 ): Promise<Blob> {
-  const response = await fetch(await historyCsvUrl(courseId, params));
+  const response = await authenticatedFetch(await historyCsvUrl(courseId, params));
   if (!response.ok) {
     let detail = "历史记录导出失败";
     try {
@@ -256,7 +285,7 @@ export async function exportLearningReport(
   report: LearningReport,
 ): Promise<Blob> {
   const base = await getApiBaseUrl();
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${base}/api/courses/${courseId}/learning-report/export/${format}`,
     {
       method: "POST",
@@ -279,7 +308,7 @@ async function requestJson<T>(
   let response: Response;
   try {
     const apiBaseUrl = await getApiBaseUrl();
-    response = await fetch(`${apiBaseUrl}${path}`, {
+    response = await authenticatedFetch(`${apiBaseUrl}${path}`, {
       method,
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,

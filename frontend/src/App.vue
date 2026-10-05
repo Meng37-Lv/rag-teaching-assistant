@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref, onMounted } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
 import {
+  registerAccount, loginAccount, logoutAccount, currentAccount, authUiConfig, clearSession,
   buildCourse,
   createCourse,
   createLearningReport,
@@ -23,6 +24,73 @@ import {
   uploadMaterial,
   clearHistory,
 } from "./api.ts";
+
+const account = ref(null);
+const authChecking = ref(true);
+const authMode = ref("login");
+const authPending = ref(false);
+const authError = ref("");
+const schoolImageUrl = ref("");
+const authForm = ref({ account_name: "", phone: "", password: "", confirm_password: "" });
+function switchAuth(mode) {
+  if (authPending.value) return;
+  authMode.value = mode;
+  authError.value = "";
+  authForm.value.password = "";
+  authForm.value.confirm_password = "";
+}
+async function submitAuth() {
+  if (authPending.value) return;
+  authError.value = "";
+  const form = authForm.value;
+  if (!form.phone.trim() || !form.password || (authMode.value === "register" && (!form.account_name.trim() || !form.confirm_password))) {
+    authError.value = "请完整填写所有必填项。"; return;
+  }
+  if (authMode.value === "register" && form.password !== form.confirm_password) {
+    authError.value = "两次输入的密码不一致。"; return;
+  }
+  authPending.value = true;
+  try {
+    if (authMode.value === "register") {
+      await registerAccount({ ...form });
+      window.alert("注册成功，请登录");
+      authMode.value = "login";
+    } else {
+      const loggedIn = await loginAccount(form.phone, form.password);
+      window.alert("登录成功");
+      account.value = loggedIn;
+      page.value = "home";
+    }
+    authForm.value.password = "";
+    authForm.value.confirm_password = "";
+  } catch (error) { authError.value = error instanceof Error ? error.message : "请求失败，请重试。"; }
+  finally { authPending.value = false; }
+}
+function resetAccountWorkspace() {
+  page.value = "home"; mode.value = null; result.value = null;
+  courses.value = []; selectedCourse.value = null; courseMaterials.value = [];
+  teachingCourseId.value = ""; teachingCourseName.value = ""; teachingCourses.value = [];
+  historyItems.value = []; historyDetail.value = null; analyticsData.value = null; learningReport.value = null;
+  presentationFiles.value = []; presentationText.value = ""; materialPreviews.value = [];
+  optimizedQuestionInput.value = ""; answerQuestionInput.value = ""; studentAnswer.value = "";
+  courseForm.value = { name: "", description: "", grade_level: "", teaching_goal: "" };
+  historyTotal.value = 0; historyPage.value = 1; historyTaskType.value = ""; historyFrom.value = ""; historyTo.value = "";
+  analyticsFrom.value = ""; analyticsTo.value = "";
+  excludedPresentationFiles.value = []; includePresentationText.value = true;
+  errorMessage.value = ""; courseError.value = ""; courseNotice.value = ""; teachingError.value = "";
+  historyError.value = ""; analyticsError.value = ""; reportError.value = ""; toastMessage.value = "";
+}
+function sessionExpired() {
+  account.value = null; clearSession(); resetAccountWorkspace();
+  authMode.value = "login"; authError.value = "登录已过期或失效，请重新登录。";
+}
+async function signOut() {
+  if (authPending.value || loading.value || previewLoading.value || courseLoading.value || courseSaving.value || teachingLoading.value || historyLoading.value || analyticsLoading.value || reportLoading.value) return;
+  authPending.value = true;
+  try { await logoutAccount(); }
+  catch (error) { authError.value = error instanceof Error ? error.message : "退出失败。"; }
+  finally { account.value = null; resetAccountWorkspace(); authForm.value = { account_name: "", phone: "", password: "", confirm_password: "" }; authMode.value = "login"; authPending.value = false; }
+}
 
 const page = ref("home");
 const mode = ref(null);
@@ -655,10 +723,14 @@ async function rebuildCourse() {
     courseLoading.value = false;
   }
 }
-onMounted(() => {
-  teachingCourseId.value = "";
-  teachingCourseName.value = "";
+onMounted(async () => {
+  window.addEventListener("account-session-expired", sessionExpired);
+  try { schoolImageUrl.value = (await authUiConfig()).school_image_url; } catch { schoolImageUrl.value = ""; }
+  try { account.value = await currentAccount(); }
+  catch { clearSession(); account.value = null; }
+  finally { authChecking.value = false; }
 });
+onUnmounted(() => window.removeEventListener("account-session-expired", sessionExpired));
 
 function clearCurrentSession() {
   if (isQuestionMode.value) optimizedQuestionInput.value = "";
@@ -839,7 +911,28 @@ async function submit() {
 </script>
 
 <template>
-  <main class="page-shell">
+  <section v-if="!account || authChecking" class="auth-screen" :style="schoolImageUrl ? { backgroundImage: `linear-gradient(rgba(18, 45, 47, .45), rgba(18, 45, 47, .45)), url(${JSON.stringify(schoolImageUrl)})` } : {}">
+    <div class="auth-card">
+      <h1>课程教学助手</h1>
+      <p>登录后管理自己的课程与教学记录</p>
+      <p v-if="authChecking" role="status">正在检查登录状态...</p>
+      <template v-else>
+        <div class="auth-switch"><button type="button" :disabled="authPending" :class="{ active: authMode === 'login' }" @click="switchAuth('login')">登录</button><button type="button" :disabled="authPending" :class="{ active: authMode === 'register' }" @click="switchAuth('register')">注册</button></div>
+        <form @submit.prevent="submitAuth">
+          <fieldset :disabled="authPending">
+            <label v-if="authMode === 'register'">账户名称<input v-model="authForm.account_name" required maxlength="100" autocomplete="nickname" /></label>
+            <label>手机号<input v-model="authForm.phone" required type="tel" inputmode="tel" autocomplete="tel" /></label>
+            <label>密码<input v-model="authForm.password" required type="password" :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'" /></label>
+            <label v-if="authMode === 'register'">确认密码<input v-model="authForm.confirm_password" required type="password" autocomplete="new-password" /></label>
+            <p v-if="authError" class="message error-message" role="alert">{{ authError }}</p>
+            <button class="submit-button" type="submit" :disabled="authPending">{{ authPending ? '正在处理...' : authMode === 'register' ? '注册' : '登录' }}</button>
+          </fieldset>
+        </form>
+      </template>
+    </div>
+  </section>
+  <main v-else class="page-shell">
+    <div class="account-bar"><span>{{ account.account_name }}</span><button type="button" class="text-button" :disabled="authPending || loading || previewLoading || courseLoading || courseSaving || teachingLoading || historyLoading || analyticsLoading || reportLoading" @click="signOut">退出登录</button></div>
     <nav v-if="!isHomePage" class="page-navigation" aria-label="页面导航">
       <button
         type="button"

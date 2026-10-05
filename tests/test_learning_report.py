@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from src.course_data import CourseCreate, CourseStore, get_course_store
 from src.teaching_history import TeachingHistoryStore, get_history_store
 from src.web_api import app
+from tests.auth_helpers import login_test_client
 
 
 VALID_REPORT = {name: [{"conclusion": f"{name}结论", "evidence": "统计记录10条，event_id abc"}] for name in ("整体概况", "高频疑点", "常见误区", "薄弱知识点", "思维能力", "代表证据", "教学建议")}
@@ -25,6 +26,7 @@ class LearningReportTests(unittest.TestCase):
         app.dependency_overrides[get_course_store] = lambda: self.store
         app.dependency_overrides[get_history_store] = lambda: self.history
         self.client = TestClient(app)
+        login_test_client(self.client, self.store)
 
     def tearDown(self) -> None:
         app.dependency_overrides.clear()

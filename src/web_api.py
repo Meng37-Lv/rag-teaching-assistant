@@ -12,7 +12,9 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
+from src.auth import require_business_access, router as auth_router
 from fastapi.staticfiles import StaticFiles
 from openai import (
     APIConnectionError,
@@ -224,19 +226,28 @@ class PresentationQuestionRuntime:
     service: ReportQuestionService
 
 
-app = FastAPI(title="RAG教学辅助系统API")
+app = FastAPI(title="RAG教学辅助系统API", dependencies=[Depends(require_business_access)], docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "tauri://localhost"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+app.include_router(auth_router)
 app.include_router(course_router)
 app.include_router(course_material_router)
 app.include_router(history_router)
 app.include_router(analytics_router)
 app.include_router(learning_report_router)
+
+@app.exception_handler(RequestValidationError)
+async def safe_validation_error(request: Request, error: RequestValidationError):
+    if request.url.path.startswith("/api/auth/"):
+        return JSONResponse(status_code=422, content={"detail": "请完整填写必填字段，并使用正确的文本格式。"})
+    # Do not echo request inputs (which may contain sensitive information).
+    return JSONResponse(status_code=422, content={"detail": "请求字段缺失或格式不正确。"})
+
 
 _runtime: WebRuntime | None = None
 _runtime_lock = Lock()

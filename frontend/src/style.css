@@ -497,3 +497,16 @@ footer { padding: 34px 0 0; color: #819094; font-size: 12px; text-align: center;
 
 .material-overview { white-space: pre-wrap; max-height: 240px; overflow: auto; overflow-wrap: anywhere; }
 .question-basis { color: #607579; font-size: 14px; line-height: 1.7; }
+
+.auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #edf3f1; background-position: center; background-size: cover; }
+.auth-card { width: min(100%, 420px); padding: 32px; border-radius: 20px; background: rgba(255,255,255,.96); box-shadow: 0 12px 40px rgba(20,60,50,.1); }
+.auth-card h1 { margin: 0 0 10px; font-size: 26px; }
+.auth-card > p { color: #607579; }
+.auth-card fieldset { border: 0; margin: 0; padding: 0; }
+.auth-card label { display: block; margin: 17px 0; font-weight: 600; }
+.auth-card input { display: block; box-sizing: border-box; width: 100%; margin-top: 7px; padding: 12px; border: 1px solid #cedbd7; border-radius: 8px; font: inherit; }
+.auth-switch { display: flex; gap: 12px; margin: 24px 0 10px; }
+.auth-switch button { flex: 1; padding: 10px; background: #edf3f1; border: 1px solid #d5e1dc; border-radius: 8px; cursor: pointer; }
+.auth-switch button.active { color: white; background: #176b59; }
+.auth-card button:disabled { opacity: .6; cursor: wait; }
+.account-bar { display: flex; align-items: center; justify-content: flex-end; gap: 18px; margin-bottom: 12px; }

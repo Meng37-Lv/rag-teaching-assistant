@@ -113,7 +113,7 @@ def main() -> None:
         allow_origins=["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"],
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "Authorization"],
     )
 
     import uvicorn

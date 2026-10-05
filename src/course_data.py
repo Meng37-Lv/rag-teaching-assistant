@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Iterator, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 from src.data_paths import course_directory, storage_root
+from src.migrations import migrate_accounts
 
 
 COURSE_DB_PATH = storage_root() / "courses.db"
@@ -80,12 +81,14 @@ class CourseStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+        migrate_accounts(self.db_path)
         self.ensure_default_course()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         try:
             yield connection
             connection.commit()
@@ -110,7 +113,6 @@ class CourseStore:
     def ensure_default_course(self) -> Course:
         """Create the built-in course once; its knowledge sources remain global and read-only."""
         with self._connect() as connection:
-            connection.execute("UPDATE courses SET name = ? WHERE id = ? AND name != ?", ("人工智能概论", "default", "人工智能概论"))
             if connection.execute("SELECT 1 FROM initialization_flags WHERE name='default_course'").fetchone():
                 return self.get("default")  # type: ignore[return-value]
             connection.execute(
@@ -127,10 +129,6 @@ class CourseStore:
                     "ready",
                 ),
             )
-            connection.execute(
-                "UPDATE courses SET name = ? WHERE id = ? AND name IN (?, ?)",
-                ("人工智能概论", "default", "默认课程", ""),
-            )
             connection.execute("INSERT OR IGNORE INTO initialization_flags(name) VALUES ('default_course')")
         return self.get("default")  # type: ignore[return-value]
 
@@ -138,7 +136,7 @@ class CourseStore:
     def _course(row: sqlite3.Row) -> Course:
         return Course(**dict(row))
 
-    def create(self, data: CourseCreate) -> Course:
+    def create(self, data: CourseCreate, account_id: str | None = None) -> Course:
         course = Course(
             id=str(uuid4()),
             name=data.name,
@@ -153,11 +151,16 @@ class CourseStore:
                 "INSERT INTO courses VALUES (?, ?, ?, ?, ?, ?, ?)",
                 tuple(course.model_dump().values()),
             )
+            if account_id is not None:
+                connection.execute("INSERT INTO course_ownership VALUES (?, ?)", (course.id, account_id))
         return course
 
-    def list(self) -> list[Course]:
+    def list(self, account_id: str | None = None) -> list[Course]:
         with self._connect() as connection:
-            rows = connection.execute("SELECT * FROM courses ORDER BY created_at, id").fetchall()
+            if account_id is None:
+                rows = connection.execute("SELECT * FROM courses ORDER BY created_at, id").fetchall()
+            else:
+                rows = connection.execute("SELECT c.* FROM courses c JOIN course_ownership o ON o.course_id = c.id WHERE o.account_id = ? ORDER BY c.created_at, c.id", (account_id,)).fetchall()
         return [self._course(row) for row in rows]
 
     def get(self, course_id: str) -> Course | None:
@@ -231,13 +234,13 @@ router = APIRouter(prefix="/api/courses", tags=["courses"])
 
 
 @router.post("", response_model=Course, status_code=status.HTTP_201_CREATED)
-def create_course(payload: CourseCreate, store: CourseStore = Depends(get_course_store)) -> Course:
-    return store.create(payload)
+def create_course(payload: CourseCreate, request: Request, store: CourseStore = Depends(get_course_store)) -> Course:
+    return store.create(payload, request.state.account["account_id"])
 
 
 @router.get("", response_model=list[Course])
-def list_courses(store: CourseStore = Depends(get_course_store)) -> list[Course]:
-    return store.list()
+def list_courses(request: Request, store: CourseStore = Depends(get_course_store)) -> list[Course]:
+    return store.list(request.state.account["account_id"])
 
 
 @router.get("/{course_id}", response_model=Course)
