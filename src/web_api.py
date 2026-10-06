@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from src.auth import require_business_access, router as auth_router
+from src.classroom import router as classroom_router
 from fastapi.staticfiles import StaticFiles
 from openai import (
     APIConnectionError,
@@ -235,6 +236,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 app.include_router(auth_router)
+app.include_router(classroom_router)
 app.include_router(course_router)
 app.include_router(course_material_router)
 app.include_router(history_router)

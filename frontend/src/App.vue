@@ -23,6 +23,7 @@ import {
   updateCourse,
   uploadMaterial,
   clearHistory,
+  listClasses, createClass, importRoster, startSession, endSession, joinSession, sendClassMessage, pollClassMessages, listPendingStudents, confirmStudent, rejectStudent, studentStatus, studentState, sendStudentMessage,
 } from "./api.ts";
 
 const account = ref(null);
@@ -157,6 +158,25 @@ const learningReport = ref(null);
 const reportLoading = ref(false);
 const reportError = ref("");
 const toastMessage = ref("");
+const classroomClasses = ref([]); const classroomName = ref(""); const classroomSession = ref(null); const classroomMessages = ref([]); const classroomText = ref(""); const classroomJoinToken = ref(""); const classroomJoinUrl = ref(""); const classroomQrUrl = ref(""); const classroomNotice = ref(""); const classroomStudentName = ref(""); const studentEntry = ref(Boolean(new URLSearchParams(window.location.search).get("join"))); const studentJoinToken = ref(new URLSearchParams(window.location.search).get("join") || ""); const studentInput = ref(""); const studentMessage = ref(""); const studentMessages = ref([]); const studentPending = ref(false); const classroomStatus = ref(""); const classroomTimer = ref(null); const studentTimer = ref(null); const classroomPending = ref([]); const classroomPendingBusy = ref({}); const classroomPendingError = ref(""); const classroomFilter = ref(""); const classroomRosterFile = ref(null); const studentSessionId = ref("");
+async function loadClasses(){ if(!teachingCourseId.value)return; classroomClasses.value=await listClasses(teachingCourseId.value); }
+async function addClass(){ if(!classroomName.value.trim())return; await createClass(teachingCourseId.value,classroomName.value.trim()); classroomName.value=""; await loadClasses(); }
+async function beginClass(item){ classroomSession.value=await startSession(item.class_id); classroomJoinToken.value=classroomSession.value.join_token; try{ const info=await classroomJoinInfo(classroomSession.value.session_id,classroomJoinToken); classroomJoinUrl.value=info.join_url||""; if(info.qr_available){ const blob=await classroomQrBlob(classroomSession.value.session_id,classroomJoinToken); classroomQrUrl.value=URL.createObjectURL(blob); } }catch(error){ classroomNotice.value=error instanceof Error?error.message:"请先配置公网HTTPS地址"; } classroomStatus.value="教师课堂进行中"; classroomPending.value=[]; if(classroomTimer.value)clearInterval(classroomTimer.value); classroomTimer.value=setInterval(pollClass,4000); await pollClass(); }
+async function finishClass(){ if(classroomTimer.value)clearInterval(classroomTimer.value); if(classroomQrUrl.value){ URL.revokeObjectURL(classroomQrUrl.value); classroomQrUrl.value=""; } if(classroomSession.value){ await endSession(classroomSession.value.session_id); classroomSession.value=null; classroomStatus.value="课堂已结束"; if(classroomTimer.value)clearInterval(classroomTimer.value); } }
+async function joinClass(){ if(!classroomJoinToken.value||!classroomStudentName.value.trim())return; const result=await joinSession(classroomJoinToken.value,classroomStudentName.value.trim()); classroomStatus.value=result.status==='confirmed'?"已进入课堂":"等待教师确认"; if(result.student_token)sessionStorage.setItem('class-student-token',result.student_token); }
+async function sendClass(){ const body=classroomText.value.trim(); if(!body||!classroomSession.value)return; await sendClassMessage(classroomSession.value.session_id,body); classroomText.value=""; }
+async function pollStudent(){ if(!studentEntry.value || !sessionStorage.getItem("class-student-token"))return; try{ const state=await studentState(); studentPending.value=state.status==='pending'; studentMessage.value=state.status==='confirmed'?'已确认进入课堂':state.status==='rejected'?'申请已拒绝':state.session_status==='ended'?'课堂已结束':'等待教师确认'; studentMessages.value=state.messages||[]; }catch(error){studentMessage.value=error instanceof Error?error.message:'学生会话已失效';} }
+async function joinStudent(){ if(!studentInput.value.trim())return; try{ const result=await joinSession(studentJoinToken.value,studentInput.value.trim()); if(result.student_token)sessionStorage.setItem('class-student-token',result.student_token); await pollStudent(); }catch(error){studentMessage.value=error instanceof Error?error.message:'加入失败';} }
+function leaveStudent(){ sessionStorage.removeItem("class-student-token"); window.location.href=window.location.pathname; }
+async function sendStudent(){ const body=studentText.value.trim(); if(!body)return; await sendStudentMessage(body); studentText.value=""; await pollStudent(); }
+const studentText = ref("");
+async function pollClass(){ if(classroomSession.value){ classroomMessages.value=await pollClassMessages(classroomSession.value.session_id); classroomPending.value=await listPendingStudents(classroomSession.value.session_id); } if(studentSessionId.value && classroomSession.value){ const state=await studentStatus(classroomSession.value.session_id); classroomStatus.value=state.status==='confirmed'?'已确认进入课堂':state.status==='rejected'?'申请已拒绝':'等待教师确认'; } }
+async function confirmPending(item,studentId){ if(classroomPendingBusy.value[item.session_student_id])return; classroomPendingBusy.value={...classroomPendingBusy.value,[item.session_student_id]:true}; classroomPendingError.value=""; try{ await confirmStudent(classroomSession.value.session_id,item.session_student_id,studentId); classroomStatus.value="已确认学生进入课堂"; await pollClass(); }catch(error){ classroomPendingError.value=error instanceof Error?error.message:"确认失败，请刷新后重试"; }finally{ const next={...classroomPendingBusy.value}; delete next[item.session_student_id]; classroomPendingBusy.value=next; } }
+async function rejectPending(item){ if(classroomPendingBusy.value[item.session_student_id])return; classroomPendingBusy.value={...classroomPendingBusy.value,[item.session_student_id]:true}; classroomPendingError.value=""; try{ await rejectStudent(classroomSession.value.session_id,item.session_student_id); classroomStatus.value="已拒绝该申请"; await pollClass(); }catch(error){ classroomPendingError.value=error instanceof Error?error.message:"拒绝失败，请刷新后重试"; }finally{ const next={...classroomPendingBusy.value}; delete next[item.session_student_id]; classroomPendingBusy.value=next; } }
+function onRosterFile(e){ classroomRosterFile.value=e.target.files?.[0]||null; }
+async function uploadRoster(item){ if(!classroomRosterFile.value)return; await importRoster(item.class_id,classroomRosterFile.value); classroomRosterFile.value=null; }
+
+
 let toastTimer = null;
 
 const FEATURES = [
@@ -725,12 +745,13 @@ async function rebuildCourse() {
 }
 onMounted(async () => {
   window.addEventListener("account-session-expired", sessionExpired);
+  if(studentEntry.value){ await pollStudent(); studentTimer.value=setInterval(pollStudent,4000); }
   try { schoolImageUrl.value = (await authUiConfig()).school_image_url; } catch { schoolImageUrl.value = ""; }
   try { account.value = await currentAccount(); }
   catch { clearSession(); account.value = null; }
   finally { authChecking.value = false; }
 });
-onUnmounted(() => window.removeEventListener("account-session-expired", sessionExpired));
+onUnmounted(() => { window.removeEventListener("account-session-expired", sessionExpired); if(classroomTimer.value) clearInterval(classroomTimer.value); if(studentTimer.value) clearInterval(studentTimer.value); if(classroomQrUrl.value) URL.revokeObjectURL(classroomQrUrl.value); });
 
 function clearCurrentSession() {
   if (isQuestionMode.value) optimizedQuestionInput.value = "";
@@ -911,7 +932,8 @@ async function submit() {
 </script>
 
 <template>
-  <section v-if="!account || authChecking" class="auth-screen" :style="schoolImageUrl ? { backgroundImage: `linear-gradient(rgba(18, 45, 47, .45), rgba(18, 45, 47, .45)), url(${JSON.stringify(schoolImageUrl)})` } : {}">
+  <section v-if="studentEntry" class="auth-screen"><div class="auth-card"><h1>加入课堂</h1><p v-if="!sessionStorage.getItem('class-student-token')">请输入姓名后等待教师确认</p><input v-if="!sessionStorage.getItem('class-student-token')" v-model="studentInput" maxlength="100" placeholder="姓名" /><button v-if="!sessionStorage.getItem('class-student-token')" class="submit-button" type="button" @click="joinStudent">加入课堂</button><p class="message notice-message">{{ studentMessage }}</p><button v-if="sessionStorage.getItem('class-student-token')" class="text-button" type="button" @click="pollStudent">刷新状态</button><button v-if="sessionStorage.getItem('class-student-token')" class="text-button" type="button" @click="leaveStudent">退出课堂</button><div v-if="!studentPending && studentMessage === '已确认进入课堂'"><input v-model="studentText" maxlength="1000" placeholder="输入消息" /><button class="submit-button" type="button" @click="sendStudent">发送</button><ul><li v-for="(item,index) in studentMessages" :key="index">{{ item.body }} · {{ item.created_at }}</li></ul></div></div></section>
+  <section v-else-if="!account || authChecking" class="auth-screen" :style="schoolImageUrl ? { backgroundImage: `linear-gradient(rgba(18, 45, 47, .45), rgba(18, 45, 47, .45)), url(${JSON.stringify(schoolImageUrl)})` } : {}">
     <div class="auth-card">
       <h1>课程教学助手</h1>
       <p>登录后管理自己的课程与教学记录</p>
@@ -1039,6 +1061,12 @@ async function submit() {
         <strong>学情概览</strong><span class="home-feature-number">05</span
         ><span class="home-feature-arrow">→</span>
       </button>
+    </section>
+
+    <section v-if="isTeachingHome" class="classroom-panel workspace prep-workspace">
+      <div class="prep-content"><h2>班级与课堂</h2><div><input v-model="classroomName" placeholder="班级名称" /><button class="submit-button small-button" type="button" @click="addClass">创建班级</button><button class="text-button" type="button" @click="loadClasses">刷新</button></div>
+      <ul><li v-for="item in classroomClasses" :key="item.class_id"><strong>{{ item.name }}</strong><input type="file" accept=".xlsx" @change="onRosterFile" /><button class="text-button" type="button" @click="uploadRoster(item)">导入名单</button><button class="text-button" type="button" @click="beginClass(item)">开始课堂</button></li></ul>
+      <div v-if="classroomSession"><p v-if="classroomPendingError" class="message error-message">{{ classroomPendingError }}</p><p v-if="classroomNotice" class="message error-message">{{ classroomNotice }}</p><img v-if="classroomQrUrl" class="classroom-qr" :src="classroomQrUrl" alt="微信扫码加入课堂" /><p v-if="classroomJoinUrl">加入链接：{{ classroomJoinUrl }} <button class="text-button" type="button" @click="navigator.clipboard?.writeText(classroomJoinUrl)">复制链接</button></p><button class="text-button" type="button" @click="finishClass">结束课堂</button><select v-model="classroomFilter"><option value="">全部学生</option><option v-for="student in classroomMessages" :key="student.name" :value="student.name">{{ student.name }}</option></select><ul><li v-for="message in classroomMessages.filter(x => !classroomFilter || x.name === classroomFilter)" :key="message.message_id">{{ message.name }}：{{ message.body }}</li></ul><div v-for="item in classroomPending" :key="item.session_student_id"><span>{{ item.requested_name || item.name }} 待确认</span><button :disabled="classroomPendingBusy[item.session_student_id]" v-for="candidate in item.candidates || []" :key="candidate.student_id" @click="confirmPending(item,candidate.student_id)">{{ candidate.name }}（{{ candidate.student_no }}）</button><button :disabled="classroomPendingBusy[item.session_student_id]" @click="rejectPending(item)">{{ classroomPendingBusy[item.session_student_id] ? "处理中..." : "拒绝" }}</button></div></div></div>
     </section>
 
     <section v-else-if="isAnalyticsPage" class="workspace prep-workspace">

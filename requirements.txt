@@ -15,3 +15,6 @@ pypdf
 reportlab
 
 # pickle is part of the Python standard library and does not need installation.
+
+openpyxl==3.1.5
+qrcode==8.2

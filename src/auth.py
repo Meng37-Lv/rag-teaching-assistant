@@ -155,7 +155,7 @@ PUBLIC_API = {'/api/health', '/api/auth/register', '/api/auth/login', '/api/auth
 
 
 async def require_business_access(request: Request):
-    if not request.url.path.startswith('/api/') or request.url.path in PUBLIC_API:
+    if not request.url.path.startswith('/api/') or request.url.path in PUBLIC_API or request.url.path.startswith('/api/join/') or request.url.path.startswith('/api/student/'):
         return
     accounts = get_accounts(request)
     request.state.account = accounts.current(_token(request))

@@ -510,3 +510,5 @@ footer { padding: 34px 0 0; color: #819094; font-size: 12px; text-align: center;
 .auth-switch button.active { color: white; background: #176b59; }
 .auth-card button:disabled { opacity: .6; cursor: wait; }
 .account-bar { display: flex; align-items: center; justify-content: flex-end; gap: 18px; margin-bottom: 12px; }
+
+.classroom-qr { width: 220px; height: 220px; object-fit: contain; margin: 12px 0; }

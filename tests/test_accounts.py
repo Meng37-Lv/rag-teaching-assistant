@@ -183,7 +183,7 @@ class AccountTests(unittest.TestCase):
         for _ in range(3):
             migrate_accounts(self.store.db_path)
         with closing(sqlite3.connect(self.store.db_path)) as connection:
-            self.assertEqual(connection.execute('SELECT COUNT(*) FROM schema_migrations').fetchone()[0], 1)
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM schema_migrations').fetchone()[0], 4)
             self.assertEqual(connection.execute('SELECT COUNT(*) FROM course_ownership').fetchone()[0], 0)
         self.assertEqual(self.history.get('default', event.id).score, 72)
         self.assertEqual(self.store.get('default').id, 'default')

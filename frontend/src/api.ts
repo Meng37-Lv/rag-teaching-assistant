@@ -327,3 +327,29 @@ export function previewPresentationMaterials(files: File[], text: string, course
   form.append("course_id", courseId);
   return postForm("/api/presentation-preview", form);
 }
+
+export function listClasses(courseId: string): Promise<any[]> { return getJson(`/api/courses/${courseId}/classes`); }
+export function createClass(courseId: string, name: string): Promise<any> { return postJson(`/api/courses/${courseId}/classes`, {name}); }
+export function importRoster(classId: string, file: File): Promise<any> { const f=new FormData(); f.append('file',file); return postForm(`/api/classes/${classId}/import`,f); }
+export function startSession(classId: string): Promise<any> { return postJson(`/api/classes/${classId}/sessions`,{}); }
+export function endSession(id: string): Promise<any> { return postJson(`/api/sessions/${id}/end`,{}); }
+export function joinSession(token: string,name: string): Promise<any> { return postJson(`/api/join/${token}`,{name}); }
+export function sendClassMessage(id: string,body: string): Promise<any> { return postJson(`/api/sessions/${id}/messages`,{body}); }
+export function pollClassMessages(id: string): Promise<any[]> { return getJson(`/api/sessions/${id}/messages`); }
+
+export function listPendingStudents(sessionId: string): Promise<any[]> { return getJson(`/api/sessions/${sessionId}/pending`); }
+export function confirmStudent(sessionId: string, sessionStudentId: string, studentId: string): Promise<any> { return requestJson(`/api/sessions/${sessionId}/students/${sessionStudentId}/confirm?student_id=${encodeURIComponent(studentId)}`, 'POST'); }
+export function rejectStudent(sessionId: string, sessionStudentId: string): Promise<any> { return postJson(`/api/sessions/${sessionId}/students/${sessionStudentId}/reject`, {}); }
+export function studentStatus(sessionId: string): Promise<any> { return requestJson(`/api/sessions/${sessionId}/student-status`, 'GET'); }
+
+async function studentRequest<T>(path: string, method: string, body?: object): Promise<T> {
+  const token = sessionStorage.getItem("class-student-token");
+  const response = await fetch(`${await getApiBaseUrl()}${path}`, { method, headers: { "Content-Type": "application/json", ...(token ? { "X-Student-Session": token } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  return parseResponse<T>(response);
+}
+export function studentState(): Promise<any> { return studentRequest('/api/student/state', 'GET'); }
+export function sendStudentMessage(body: string): Promise<any> { return studentRequest('/api/student/messages','POST',{body}); }
+
+export function classroomJoinInfo(sessionId: string, token: string): Promise<{join_url?: string; qr_available: boolean}> { return requestWithJoinToken(`/api/sessions/${sessionId}/join-info`, token); }
+export async function classroomQrBlob(sessionId: string, token: string): Promise<Blob> { const response=await authenticatedFetch(`${await getApiBaseUrl()}/api/sessions/${sessionId}/qrcode`, {headers:{"X-Join-Token":token}}); if(!response.ok) throw new Error("二维码生成失败"); return response.blob(); }
+async function requestWithJoinToken(path:string, token:string): Promise<any> { const response=await authenticatedFetch(`${await getApiBaseUrl()}${path}`,{headers:{"X-Join-Token":token}}); return parseResponse(response); }
