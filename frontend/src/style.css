@@ -512,3 +512,8 @@ footer { padding: 34px 0 0; color: #819094; font-size: 12px; text-align: center;
 .account-bar { display: flex; align-items: center; justify-content: flex-end; gap: 18px; margin-bottom: 12px; }
 
 .classroom-qr { width: 220px; height: 220px; object-fit: contain; margin: 12px 0; }
+.pdf-scroll-viewer { max-height: 68vh; overflow: auto; padding: 12px; background: #eef1f5; border: 1px solid #d6e0de; border-radius: 10px; }
+.pdf-page { position: relative; display: grid; justify-items: center; gap: 6px; min-height: 120px; margin: 0 auto 18px; }
+.pdf-page > span { color: #607579; font-size: 13px; }
+.pdf-page canvas { display: block; max-width: 100%; height: auto; background: white; box-shadow: 0 2px 8px rgba(20, 45, 47, .18); }
+.submission-preview { margin-top: 16px; }

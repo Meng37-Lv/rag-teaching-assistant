@@ -95,10 +95,17 @@ def main() -> None:
     log_path = _configure_logging()
     parser = argparse.ArgumentParser(description="课程知识增强教学助手桌面后端")
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--preview-converter", default="", help="Bundled LibreOffice soffice executable")
+    parser.add_argument("--preview-font-dir", default="", help="Bundled preview font directory")
     args = parser.parse_args()
 
     if not 1 <= args.port <= 65535:
         parser.error("port must be between 1 and 65535")
+
+    if args.preview_converter:
+        os.environ["PREVIEW_CONVERTER_PATH"] = str(Path(args.preview_converter).resolve())
+    if args.preview_font_dir:
+        os.environ["PREVIEW_FONT_DIR"] = str(Path(args.preview_font_dir).resolve())
 
     root = _runtime_root()
     root_text = str(root)

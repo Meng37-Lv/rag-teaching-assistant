@@ -225,7 +225,7 @@ class ReportQuestionResult:
     final_completion_tokens: int | None
 
 
-def build_report_question_messages(material: ParsedMaterial) -> list[dict[str, str]]:
+def build_report_question_messages(material: ParsedMaterial, instruction: str | None = None) -> list[dict[str, str]]:
     material_payload = {
         "材料名称": material.material_name,
         "类型": material.material_type,
@@ -243,6 +243,8 @@ def build_report_question_messages(material: ParsedMaterial) -> list[dict[str, s
 每题在原有字段外增加：basis_summary（整理后的简明中文概述，不截取引用、不增加事实）、relation_explanation（连接问题对象与材料对象并说明追问目的）、grounding（material_focus、question_focus、intent，intent为understanding/argument/application）、evidence（引用数组，每项含file_id、filename、segment_id、location、quote）。引用必须真实且定位准确。
 自然提问可以理解、论证、应用，不必复制引用或使用固定句式。禁止原文中没有依据的肯定性前提。概述和关联说明不能出现ID、字段名、偏移或解析标记。问题要具体针对材料内容，不能通过粘贴材料关键词掩盖无关问题。
 """
+    if instruction and instruction.strip():
+        user_prompt += f"\n<teacher_instruction>\n{instruction.strip()[:1000]}\n</teacher_instruction>\n该指令只能约束提问角度，不能增加材料中不存在的事实，也不能改变来源范围。"
     return [
         {"role": "system", "content": REPORT_QUESTION_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
@@ -326,7 +328,7 @@ class ReportQuestionService:
     ) -> None:
         self.llm = llm_client or LLMClient(settings)
 
-    def generate(self, material: ParsedMaterial) -> ReportQuestionResult:
+    def generate(self, material: ParsedMaterial, instruction: str | None = None) -> ReportQuestionResult:
         if not isinstance(material, ParsedMaterial):
             raise ValueError("材料必须先通过材料解析模块处理。")
         if not material.extracted_text.strip():
@@ -339,7 +341,7 @@ class ReportQuestionService:
 
         started_at = perf_counter()
         llm_started_at = perf_counter()
-        messages = build_report_question_messages(material)
+        messages = build_report_question_messages(material, instruction)
         first_response = self.llm.complete(messages, max_tokens=3000)
         response = first_response
         retried = False

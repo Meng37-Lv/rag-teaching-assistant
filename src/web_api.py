@@ -54,6 +54,7 @@ from src.source_mapper import (
     SourceMappingError,
     SourcePageMapper,
 )
+from src.submissions import router as submissions_router
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -242,6 +243,7 @@ app.include_router(course_material_router)
 app.include_router(history_router)
 app.include_router(analytics_router)
 app.include_router(learning_report_router)
+app.include_router(submissions_router)
 
 @app.exception_handler(RequestValidationError)
 async def safe_validation_error(request: Request, error: RequestValidationError):

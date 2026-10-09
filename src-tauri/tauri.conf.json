@@ -36,6 +36,11 @@
     "shortDescription": "基于课程知识库的教学辅助桌面应用",
     "longDescription": "提供问题优化、答案评价和课程汇报提问功能。",
     "externalBin": ["binaries/desktop-backend"],
+    "resources": {
+      "../build/desktop-resources/libreoffice": "resources/libreoffice",
+      "../build/desktop-resources/fonts": "resources/fonts",
+      "../NOTICE": "NOTICE"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

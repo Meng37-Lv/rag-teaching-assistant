@@ -61,6 +61,36 @@ class Settings:
     max_chunk_chars: int
 
 
+@dataclass(frozen=True)
+class PreviewSettings:
+    """Local-only Office-to-PDF preview settings.
+
+    The converter is deliberately independent from LLM settings so preview
+    metadata can be served even when the LLM is not configured.
+    """
+
+    converter_path: str
+    file_timeout_seconds: float
+    submission_timeout_seconds: float
+    max_concurrency: int
+    cache_ttl_seconds: int
+    font_dir: str
+    converter_version: str
+
+
+def load_preview_settings() -> PreviewSettings:
+    load_dotenv(PROJECT_ROOT / ".env")
+    return PreviewSettings(
+        converter_path=os.getenv("PREVIEW_CONVERTER_PATH", os.getenv("LIBREOFFICE_SOFFICE_PATH", "soffice")).strip() or "soffice",
+        file_timeout_seconds=_positive_float("PREVIEW_FILE_TIMEOUT_SECONDS", 60),
+        submission_timeout_seconds=_positive_float("PREVIEW_SUBMISSION_TIMEOUT_SECONDS", 180),
+        max_concurrency=_positive_int("PREVIEW_MAX_CONCURRENCY", 1),
+        cache_ttl_seconds=_positive_int("PREVIEW_CACHE_TTL_SECONDS", 24 * 60 * 60),
+        font_dir=os.getenv("PREVIEW_FONT_DIR", "").strip(),
+        converter_version=os.getenv("PREVIEW_CONVERTER_VERSION", "libreoffice-26.2.6").strip() or "libreoffice-26.2.6",
+    )
+
+
 def load_settings() -> Settings:
     load_dotenv(PROJECT_ROOT / ".env")
     return Settings(

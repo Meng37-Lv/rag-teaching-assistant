@@ -97,9 +97,12 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
+    const detail = payload?.detail;
     throw new Error(
-      typeof payload?.detail === "string"
-        ? payload.detail
+      typeof detail === "string"
+        ? detail
+        : detail && typeof detail === "object" && typeof (detail as { message?: unknown }).message === "string"
+          ? String((detail as { message: string }).message)
         : `请求失败（HTTP ${response.status}），请稍后重试。`,
     );
   }
@@ -349,6 +352,62 @@ async function studentRequest<T>(path: string, method: string, body?: object): P
 }
 export function studentState(): Promise<any> { return studentRequest('/api/student/state', 'GET'); }
 export function sendStudentMessage(body: string): Promise<any> { return studentRequest('/api/student/messages','POST',{body}); }
+
+export interface SubmissionFile { id: string; file_id: string; filename: string; file_type: string; size_bytes: number; size?: number; preview_type: string; chunk_summary?: string; uploaded_at: string; }
+export interface Submission { submission_id: string; id: string; session_id: string; status: string; created_at: string; updated_at: string; student: { name?: string | null; student_no?: string | null }; files: SubmissionFile[]; }
+export interface SubmissionPage { items: Submission[]; submissions?: Submission[]; total: number; page: number; page_size: number; }
+export type PreviewStatus = "PREVIEW_OK" | "TEXT";
+export interface SubmissionPreview { status: PreviewStatus; file_id: string; filename: string; file_type: string; preview_type: string; size_bytes: number; content_url: string; preview_url?: string; text?: string; }
+
+export async function createSubmission(sessionId: string, files: File[]): Promise<Submission> {
+  const form = new FormData(); files.forEach((file) => form.append("files", file));
+  const token = sessionStorage.getItem("class-student-token");
+  const base = await getApiBaseUrl();
+  const response = await fetch(`${base}/api/sessions/${sessionId}/submissions`, { method: "POST", headers: token ? { "X-Student-Session": token } : undefined, body: form });
+  return parseResponse<Submission>(response);
+}
+export function listSubmissions(sessionId: string, params: Record<string, string | number | undefined> = {}): Promise<SubmissionPage> {
+  const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
+  return getJson<SubmissionPage>(`/api/sessions/${sessionId}/submissions${query.toString() ? `?${query}` : ""}`);
+}
+export async function listStudentSubmissions(sessionId: string): Promise<SubmissionPage> {
+  const query = new URLSearchParams({ page: "1", page_size: "50" });
+  const token = sessionStorage.getItem("class-student-token");
+  const base = await getApiBaseUrl();
+  const response = await fetch(`${base}/api/sessions/${sessionId}/submissions?${query}`, { headers: token ? { "X-Student-Session": token } : undefined });
+  return parseResponse<SubmissionPage>(response);
+}
+export async function getSubmission(id: string): Promise<Submission> {
+  const token = sessionStorage.getItem("class-student-token");
+  if (!token) return getJson<Submission>(`/api/submissions/${id}`);
+  const base = await getApiBaseUrl();
+  const response = await fetch(`${base}/api/submissions/${id}`, { headers: { "X-Student-Session": token } });
+  return parseResponse<Submission>(response);
+}
+export async function previewSubmissionFile(id: string): Promise<SubmissionPreview> {
+  const token = sessionStorage.getItem("class-student-token");
+  if (!token) return getJson<SubmissionPreview>(`/api/submission-files/${id}/preview`);
+  const base = await getApiBaseUrl();
+  const response = await fetch(`${base}/api/submission-files/${id}/preview`, { headers: { "X-Student-Session": token } });
+  return parseResponse<SubmissionPreview>(response);
+}
+export async function downloadSubmissionPreviewPdf(id: string): Promise<Blob> {
+  const base = await getApiBaseUrl();
+  const studentToken = sessionStorage.getItem("class-student-token");
+  const response = await authenticatedFetch(`${base}/api/submission-files/${id}/preview/pdf`, { headers: studentToken ? { "X-Student-Session": studentToken } : undefined });
+  if (!response.ok) throw new Error("原格式 PDF 预览读取失败");
+  return response.blob();
+}
+export async function downloadSubmissionFile(id: string): Promise<Blob> {
+  const base = await getApiBaseUrl();
+  const studentToken = sessionStorage.getItem("class-student-token");
+  const response = await authenticatedFetch(`${base}/api/submission-files/${id}/content`, { headers: studentToken ? { "X-Student-Session": studentToken } : undefined });
+  if (!response.ok) throw new Error("文件读取失败");
+  return response.blob();
+}
+export function generateSubmissionQuestion(id: string, prompt?: string): Promise<{ question: string; response: { citations?: Array<{ location: string; quote: string }> }; question_id: string }> {
+  return postJson(`/api/submission-files/${id}/generate-question`, { prompt: prompt || "请基于材料生成一个适合课堂讨论的追问。" });
+}
 
 export function classroomJoinInfo(sessionId: string, token: string): Promise<{join_url?: string; qr_available: boolean}> { return requestWithJoinToken(`/api/sessions/${sessionId}/join-info`, token); }
 export async function classroomQrBlob(sessionId: string, token: string): Promise<Blob> { const response=await authenticatedFetch(`${await getApiBaseUrl()}/api/sessions/${sessionId}/qrcode`, {headers:{"X-Join-Token":token}}); if(!response.ok) throw new Error("二维码生成失败"); return response.blob(); }

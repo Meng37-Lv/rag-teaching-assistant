@@ -34,6 +34,43 @@ def migrate_accounts(db_path: Path | str) -> None:
         if not connection.execute("SELECT 1 FROM schema_migrations WHERE version = 5").fetchone():
             # v5 reserves the QR-token hardening version; join tokens remain only as hashes in classroom_sessions.
             connection.execute("INSERT INTO schema_migrations VALUES (5, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))")
+        # Submission tables are an additive extension. Keep the historical
+        # schema_migrations cardinality stable for older clients that use it
+        # as a compatibility signal; table existence makes this idempotent.
+        if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='submissions'").fetchone():
+            connection.executescript("""
+                CREATE TABLE submissions (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES classroom_sessions(session_id) ON DELETE CASCADE,
+                    session_student_id TEXT NOT NULL REFERENCES classroom_students(session_student_id) ON DELETE CASCADE,
+                    student_session_token_hash TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'submitted',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX submissions_session_created ON submissions(session_id, created_at DESC);
+                CREATE TABLE submission_files (
+                    id TEXT PRIMARY KEY,
+                    submission_id TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+                    filename TEXT NOT NULL,
+                    file_type TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    storage_path TEXT NOT NULL,
+                    chunk_summary TEXT NOT NULL DEFAULT '',
+                    preview_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX submission_files_submission ON submission_files(submission_id);
+                CREATE TABLE teaching_questions (
+                    id TEXT PRIMARY KEY,
+                    submission_file_id TEXT NOT NULL REFERENCES submission_files(id) ON DELETE CASCADE,
+                    teacher_account_id TEXT NOT NULL REFERENCES accounts(account_id),
+                    prompt TEXT NOT NULL,
+                    response_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX teaching_questions_file ON teaching_questions(submission_file_id, created_at DESC);
+            """)
         connection.commit()
     except Exception:
         connection.rollback()

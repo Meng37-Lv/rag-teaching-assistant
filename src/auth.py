@@ -157,6 +157,21 @@ PUBLIC_API = {'/api/health', '/api/auth/register', '/api/auth/login', '/api/auth
 async def require_business_access(request: Request):
     if not request.url.path.startswith('/api/') or request.url.path in PUBLIC_API or request.url.path.startswith('/api/join/') or request.url.path.startswith('/api/student/'):
         return
+    # Submission read/upload endpoints may be called by a confirmed classroom
+    # student with the existing short-lived X-Student-Session token. Teacher
+    # endpoints still require the normal Bearer account below.
+    student_submission_path = (
+        request.headers.get('X-Student-Session')
+        and (
+            re.fullmatch(r'/api/sessions/[^/]+/submissions', request.url.path)
+            or re.fullmatch(r'/api/submissions/[^/]+', request.url.path)
+            or re.fullmatch(r'/api/submission-files/[^/]+/preview', request.url.path)
+            or re.fullmatch(r'/api/submission-files/[^/]+/preview/pdf', request.url.path)
+            or re.fullmatch(r'/api/submission-files/[^/]+/content', request.url.path)
+        )
+    )
+    if student_submission_path:
+        return
     accounts = get_accounts(request)
     request.state.account = accounts.current(_token(request))
     course_id = request.path_params.get('course_id')

@@ -21,6 +21,25 @@ $sidecarName = "desktop-backend-$targetTriple"
 $sidecarDirectory = Join-Path $projectRoot 'src-tauri\binaries'
 $sidecarPath = Join-Path $sidecarDirectory "$sidecarName.exe"
 $releaseDirectory = Join-Path $projectRoot 'release'
+$desktopResourceRoot = Join-Path $projectRoot 'build\desktop-resources'
+$libreOfficeSource = $env:LIBREOFFICE_RUNTIME_DIR
+$previewFontSource = $env:PREVIEW_FONT_DIR
+
+if (-not $libreOfficeSource) {
+  throw 'LIBREOFFICE_RUNTIME_DIR must point to the fixed, redistributable LibreOffice runtime used for the desktop bundle.'
+}
+if (-not $previewFontSource) {
+  throw 'PREVIEW_FONT_DIR must point to the redistributable fonts used for stable PDF previews.'
+}
+$libreOfficeSource = (Resolve-Path -LiteralPath $libreOfficeSource).Path
+$previewFontSource = (Resolve-Path -LiteralPath $previewFontSource).Path
+$sofficePath = Join-Path $libreOfficeSource 'program\soffice.exe'
+if (-not (Test-Path -LiteralPath $sofficePath)) {
+  throw "LibreOffice runtime is missing program\soffice.exe: $sofficePath"
+}
+if (-not (Get-ChildItem -LiteralPath $previewFontSource -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+  throw "Preview font directory is empty: $previewFontSource"
+}
 
 foreach ($requiredPath in @($python, $tauriCli, $envFile, $modelCache)) {
   if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -28,7 +47,16 @@ foreach ($requiredPath in @($python, $tauriCli, $envFile, $modelCache)) {
   }
 }
 
-New-Item -ItemType Directory -Force -Path $pyInstallerDist, $pyInstallerWork, $pyInstallerSpec, $sidecarDirectory, $releaseDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $pyInstallerDist, $pyInstallerWork, $pyInstallerSpec, $sidecarDirectory, $releaseDirectory, $desktopResourceRoot | Out-Null
+
+$bundledLibreOffice = Join-Path $desktopResourceRoot 'libreoffice'
+$bundledFonts = Join-Path $desktopResourceRoot 'fonts'
+if (Test-Path -LiteralPath $bundledLibreOffice) { Remove-Item -LiteralPath $bundledLibreOffice -Recurse -Force }
+if (Test-Path -LiteralPath $bundledFonts) { Remove-Item -LiteralPath $bundledFonts -Recurse -Force }
+Copy-Item -LiteralPath $libreOfficeSource -Destination $bundledLibreOffice -Recurse -Force
+Copy-Item -LiteralPath $previewFontSource -Destination $bundledFonts -Recurse -Force
+if (-not (Test-Path -LiteralPath (Join-Path $bundledLibreOffice 'program\soffice.exe'))) { throw 'Bundled LibreOffice validation failed.' }
+if (-not (Get-ChildItem -LiteralPath $bundledFonts -File -Recurse | Select-Object -First 1)) { throw 'Bundled font validation failed.' }
 
 $pyInstallerArguments = @(
   '-m', 'PyInstaller',

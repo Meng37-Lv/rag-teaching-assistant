@@ -109,10 +109,26 @@ pub fn run() {
     .setup(|app| {
       let port = reserve_loopback_port()?;
       let port_argument = port.to_string();
+      let resource_dir = app.path().resource_dir()?;
+      let converter_path = resource_dir
+        .join("resources")
+        .join("libreoffice")
+        .join("program")
+        .join(if cfg!(windows) { "soffice.exe" } else { "soffice" });
+      let font_dir = resource_dir.join("resources").join("fonts");
+      let converter_argument = converter_path.to_string_lossy().into_owned();
+      let font_argument = font_dir.to_string_lossy().into_owned();
       let (mut events, child) = app
         .shell()
         .sidecar("desktop-backend")?
-        .args(["--port", port_argument.as_str()])
+        .args([
+          "--port",
+          port_argument.as_str(),
+          "--preview-converter",
+          converter_argument.as_str(),
+          "--preview-font-dir",
+          font_argument.as_str(),
+        ])
         .spawn()?;
       let pid = child.pid();
 

@@ -79,7 +79,7 @@ def join(join_token,payload:StudentJoin,request:Request):
  n=clean_name(payload.name); c=con(db(request)); row=c.execute("SELECT session_id,class_id FROM classroom_sessions WHERE join_token_hash=? AND status='active'",(h(join_token),)).fetchone()
  if not row:c.close();raise HTTPException(404,'课堂不存在或已结束。')
  m=c.execute('SELECT * FROM class_students WHERE class_id=? AND name=?',(row['class_id'],n)).fetchall(); st='confirmed' if len(m)==1 else 'pending'; sid,tok=str(uuid4()),secrets.token_urlsafe(32); student=m[0]['student_id'] if len(m)==1 else None
- c.execute('INSERT INTO classroom_students (session_student_id,session_id,student_id,student_token_hash,status,joined_at,requested_name) VALUES (?,?,?,?,?,?,?)',(sid,row['session_id'],student,h(tok),st,now(),n));c.commit();c.close();return {'student_token':tok,'status':st}
+ c.execute('INSERT INTO classroom_students (session_student_id,session_id,student_id,student_token_hash,status,joined_at,requested_name) VALUES (?,?,?,?,?,?,?)',(sid,row['session_id'],student,h(tok),st,now(),n));c.commit();c.close();return {'student_token':tok,'status':st,'session_id':row['session_id']}
 @router.post('/sessions/{session_id}/messages')
 def pm(session_id,payload:MessageCreate,request:Request):
  body=payload.body.strip(); token=request.headers.get('X-Student-Session','');c=con(db(request)); row=c.execute("SELECT session_student_id FROM classroom_students WHERE session_id=? AND student_token_hash=? AND status='confirmed'",(session_id,h(token))).fetchone();active=c.execute("SELECT 1 FROM classroom_sessions WHERE session_id=? AND status='active'",(session_id,)).fetchone()
@@ -125,7 +125,7 @@ def reject(session_id, session_student_id, request: Request):
 def student_status(session_id, request: Request):
  token=request.headers.get('X-Student-Session',''); c=con(db(request)); row=c.execute("SELECT cs.status,cs.requested_name,s.status AS session_status FROM classroom_students cs JOIN classroom_sessions s ON s.session_id=cs.session_id WHERE cs.session_id=? AND cs.student_token_hash=?",(session_id,h(token))).fetchone()
  if not row: c.close(); raise HTTPException(404,'学生会话不存在。')
- msgs=c.execute('SELECT body,created_at FROM classroom_messages WHERE session_id=? AND session_student_id=(SELECT session_student_id FROM classroom_students WHERE session_id=? AND student_token_hash=?) ORDER BY created_at',(session_id,session_id,h(token))).fetchall(); c.close(); return {'status':row['status'],'session_status':row['session_status'],'name':row['requested_name'],'messages':[dict(x) for x in msgs]}
+ msgs=c.execute('SELECT body,created_at FROM classroom_messages WHERE session_id=? AND session_student_id=(SELECT session_student_id FROM classroom_students WHERE session_id=? AND student_token_hash=?) ORDER BY created_at',(session_id,session_id,h(token))).fetchall(); c.close(); return {'status':row['status'],'session_status':row['session_status'],'session_id':session_id,'name':row['requested_name'],'messages':[dict(x) for x in msgs]}
 
 @router.delete('/classes/{class_id}')
 def delete_class(class_id, request: Request):
@@ -139,7 +139,7 @@ def delete_class(class_id, request: Request):
 def student_state(request: Request):
  token=request.headers.get('X-Student-Session',''); c=con(db(request)); row=c.execute('SELECT cs.status,cs.requested_name,s.status AS session_status,cs.session_id FROM classroom_students cs JOIN classroom_sessions s ON s.session_id=cs.session_id WHERE cs.student_token_hash=?',(h(token),)).fetchone()
  if not row: c.close(); raise HTTPException(404,'学生会话不存在。')
- messages=c.execute('SELECT body,created_at FROM classroom_messages WHERE session_student_id=(SELECT session_student_id FROM classroom_students WHERE student_token_hash=?) ORDER BY created_at',(h(token),)).fetchall(); c.close(); return {'status':row['status'],'session_status':row['session_status'],'name':row['requested_name'],'messages':[dict(x) for x in messages]}
+ messages=c.execute('SELECT body,created_at FROM classroom_messages WHERE session_student_id=(SELECT session_student_id FROM classroom_students WHERE student_token_hash=?) ORDER BY created_at',(h(token),)).fetchall(); c.close(); return {'status':row['status'],'session_status':row['session_status'],'session_id':row['session_id'],'name':row['requested_name'],'messages':[dict(x) for x in messages]}
 @router.post('/student/messages')
 def student_message(payload: MessageCreate, request: Request):
  body=payload.body.strip(); token=request.headers.get('X-Student-Session',''); c=con(db(request)); row=c.execute("SELECT cs.session_student_id FROM classroom_students cs JOIN classroom_sessions s ON s.session_id=cs.session_id WHERE cs.student_token_hash=? AND cs.status='confirmed' AND s.status='active'",(h(token),)).fetchone()
