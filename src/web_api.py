@@ -55,6 +55,8 @@ from src.source_mapper import (
     SourcePageMapper,
 )
 from src.submissions import router as submissions_router
+from src.oral_input import router as oral_input_router
+from src.collaboration import router as collaboration_router
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -244,6 +246,8 @@ app.include_router(history_router)
 app.include_router(analytics_router)
 app.include_router(learning_report_router)
 app.include_router(submissions_router)
+app.include_router(oral_input_router)
+app.include_router(collaboration_router)
 
 @app.exception_handler(RequestValidationError)
 async def safe_validation_error(request: Request, error: RequestValidationError):

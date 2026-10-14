@@ -168,6 +168,10 @@ async def require_business_access(request: Request):
             or re.fullmatch(r'/api/submission-files/[^/]+/preview', request.url.path)
             or re.fullmatch(r'/api/submission-files/[^/]+/preview/pdf', request.url.path)
             or re.fullmatch(r'/api/submission-files/[^/]+/content', request.url.path)
+            or re.fullmatch(r'/api/sessions/[^/]+/oral-drafts', request.url.path)
+            or re.fullmatch(r'/api/sessions/[^/]+/oral-state', request.url.path)
+            or re.fullmatch(r'/api/sessions/[^/]+/oral-questions', request.url.path)
+            or re.fullmatch(r'/api/sessions/[^/]+/oral-answers', request.url.path)
         )
     )
     if student_submission_path:

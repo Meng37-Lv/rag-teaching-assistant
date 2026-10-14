@@ -183,7 +183,7 @@ class AccountTests(unittest.TestCase):
         for _ in range(3):
             migrate_accounts(self.store.db_path)
         with closing(sqlite3.connect(self.store.db_path)) as connection:
-            self.assertEqual(connection.execute('SELECT COUNT(*) FROM schema_migrations').fetchone()[0], 4)
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM schema_migrations').fetchone()[0], 5)
             self.assertEqual(connection.execute('SELECT COUNT(*) FROM course_ownership').fetchone()[0], 0)
         self.assertEqual(self.history.get('default', event.id).score, 72)
         self.assertEqual(self.store.get('default').id, 'default')
@@ -196,7 +196,7 @@ class AccountTests(unittest.TestCase):
                 target.execute(sql)
             target.execute("INSERT INTO courses VALUES ('default', '旧课程自定义名称', '', '', '', '2020-01-01', 'ready')")
             target.execute("INSERT INTO initialization_flags VALUES ('default_course')")
-            target.execute("INSERT INTO teaching_events VALUES ('old', 'default', '2020-01-01', 'answer_evaluate', NULL, '{}', '{}', 72, '简单', '[]', NULL)")
+            target.execute("INSERT INTO teaching_events (id, course_id, created_at, task_type, student_id, input_json, output_json, score, level, course_basis_json, duration_ms) VALUES ('old', 'default', '2020-01-01', 'answer_evaluate', NULL, '{}', '{}', 72, '简单', '[]', NULL)")
             target.commit()
         legacy_store = CourseStore(legacy)
         account = AccountStore(legacy).register('新教师', '13800000005', 'a', 'a')

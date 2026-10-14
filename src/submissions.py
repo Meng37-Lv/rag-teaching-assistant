@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.auth import get_accounts
 from src.data_paths import get_submission_preview_dir, storage_root
-from src.material_parser import MaterialParseError, parse_material_file
+from src.material_parser import MaterialParseError, ParsedMaterial, MaterialSegment, parse_material_file
 from src.config import load_preview_settings, load_settings
 from src.preview_converter import PreviewConversionError, convert_to_pdf
 from src.report_question_service import ReportQuestionOutputError, ReportQuestionService
@@ -146,10 +146,29 @@ def _submission_payload(connection: sqlite3.Connection, row: sqlite3.Row) -> dic
     files = connection.execute("SELECT * FROM submission_files WHERE submission_id=? ORDER BY created_at, id", (row["id"],)).fetchall()
     return {
         "submission_id": row["id"], "id": row["id"], "session_id": row["session_id"],
+        "round_id": row["round_id"] if "round_id" in row.keys() else None,
         "status": row["status"], "created_at": row["created_at"], "updated_at": row["updated_at"],
         "student": _student_info(connection, row["session_student_id"]),
         "files": [_file_payload(item) for item in files],
     }
+
+
+def _authorize_round_submission(connection: sqlite3.Connection, request: Request, row: sqlite3.Row, *, require_current: bool = True) -> sqlite3.Row | None:
+    """Validate the immutable round/student binding for a submission file."""
+    round_id = row["round_id"] if "round_id" in row.keys() else None
+    if not round_id:
+        return None
+    round_row = connection.execute(
+        """SELECT r.*, cc.state AS claim_state, cc.session_student_id AS claim_student_id
+           FROM collaboration_rounds r JOIN collaboration_claims cc ON cc.round_id=r.round_id
+           WHERE r.round_id=? AND r.session_id=? AND r.class_id=(SELECT class_id FROM classroom_sessions WHERE session_id=?)
+             AND cc.session_student_id=? AND cc.state IN ('accepted','completed')
+           ORDER BY cc.updated_at DESC LIMIT 1""",
+        (round_id, row["session_id"], row["session_id"], row["session_student_id"]),
+    ).fetchone()
+    if round_row is None or (require_current and round_row["state"] != "open"):
+        raise HTTPException(409, detail={"code": "COLLABORATION_ROUND_CLOSED", "message": "当前汇报协作轮次已关闭。"})
+    return round_row
 
 
 router = APIRouter(tags=["submissions"])
@@ -160,6 +179,7 @@ async def create_submission(
     session_id: str,
     request: Request,
     files: Annotated[list[UploadFile] | None, File(description="支持 PDF/PPTX/DOCX/TXT/MD")]=None,
+    round_id: str | None = Form(default=None),
 ) -> dict[str, object]:
     student = _student_session(request, session_id, require_active=True)
     uploads = files or []
@@ -191,11 +211,15 @@ async def create_submission(
     target_dir = (storage_root() / "submissions" / session_id / submission_id).resolve()
     target_dir.mkdir(parents=True, exist_ok=False)
     connection = _connect(_db(request))
+    if round_id:
+        valid=connection.execute("SELECT 1 FROM collaboration_rounds r JOIN collaboration_claims cc ON cc.round_id=r.round_id WHERE r.round_id=? AND r.session_id=? AND r.class_id=(SELECT class_id FROM classroom_sessions WHERE session_id=?) AND r.feature_type='presentation_questions' AND cc.session_student_id=? AND cc.state='accepted' AND r.state='open'",(round_id,session_id,session_id,student['session_student_id'])).fetchone()
+        if not valid:
+            connection.close(); shutil.rmtree(target_dir, ignore_errors=True); raise HTTPException(409, detail={"code":"COLLABORATION_NOT_ACCEPTED","message":"当前协作轮次尚未接受或已结束。"})
     try:
         with connection:
             connection.execute(
-                "INSERT INTO submissions(id,session_id,session_student_id,student_session_token_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                (submission_id, session_id, student["session_student_id"], _hash(request.headers["X-Student-Session"]), "submitted", created_at, created_at),
+                "INSERT INTO submissions(id,session_id,session_student_id,student_session_token_hash,status,created_at,updated_at,round_id) VALUES (?,?,?,?,?,?,?,?)",
+                (submission_id, session_id, student["session_student_id"], _hash(request.headers["X-Student-Session"]), "submitted", created_at, created_at, round_id),
             )
             for filename, file_type, data, summary in prepared:
                 file_id = str(uuid4())
@@ -223,6 +247,7 @@ def list_submissions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     sort: str = Query(default="desc", pattern="^(asc|desc)$"),
+    round_id: str | None = Query(default=None),
 ) -> dict[str, object]:
     student_token = request.headers.get("X-Student-Session")
     if student_token:
@@ -240,6 +265,11 @@ def list_submissions(
         where.append("COALESCE(st.name,cs.requested_name) LIKE ?"); params.append(f"%{student_name.strip()}%")
     if student_no:
         where.append("st.student_no LIKE ?"); params.append(f"%{student_no.strip()}%")
+    if round_id:
+        where.append("s.round_id=?"); params.append(round_id)
+        where.append("EXISTS (SELECT 1 FROM collaboration_rounds cr JOIN collaboration_claims ccl ON ccl.round_id=cr.round_id WHERE cr.round_id=s.round_id AND cr.session_id=s.session_id AND cr.state='open' AND ccl.session_student_id=s.session_student_id AND ccl.state IN ('accepted','completed'))")
+    elif not student_id:
+        where.append("(s.round_id IS NULL OR EXISTS (SELECT 1 FROM collaboration_rounds cr JOIN collaboration_claims ccl ON ccl.round_id=cr.round_id WHERE cr.round_id=s.round_id AND cr.session_id=s.session_id AND cr.state='open' AND ccl.session_student_id=s.session_student_id AND ccl.state IN ('accepted','completed')))")
     where_sql = " AND ".join(where)
     order = "ASC" if sort == "asc" else "DESC"
     total = connection.execute(
@@ -268,6 +298,7 @@ def get_submission(submission_id: str, request: Request) -> dict[str, object]:
             connection.close(); raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "无权查看该提交。"})
     else:
         _teacher_session(request, row["session_id"])
+    _authorize_round_submission(connection, request, row)
     payload = _submission_payload(connection, row)
     connection.close()
     return payload
@@ -275,7 +306,7 @@ def get_submission(submission_id: str, request: Request) -> dict[str, object]:
 
 def _file_and_submission(request: Request, file_id: str) -> tuple[sqlite3.Connection, sqlite3.Row, sqlite3.Row]:
     connection = _connect(_db(request))
-    row = connection.execute("SELECT f.*,s.id AS submission_id,s.session_id,s.session_student_id,s.status FROM submission_files f JOIN submissions s ON s.id=f.submission_id WHERE f.id=?", (file_id,)).fetchone()
+    row = connection.execute("SELECT f.*,s.id AS submission_id,s.session_id,s.session_student_id,s.status,s.round_id FROM submission_files f JOIN submissions s ON s.id=f.submission_id WHERE f.id=?", (file_id,)).fetchone()
     if row is None:
         connection.close(); raise HTTPException(404, detail={"code": "FILE_NOT_FOUND", "message": "提交文件不存在。"})
     return connection, row, row
@@ -288,6 +319,13 @@ def _authorize_file(request: Request, row: sqlite3.Row) -> None:
             raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "无权访问该提交文件。"})
     else:
         _teacher_session(request, row["session_id"])
+    # Round-bound files are only visible while their owning round is current.
+    if row["round_id"]:
+        connection = _connect(_db(request))
+        try:
+            _authorize_round_submission(connection, request, row)
+        finally:
+            connection.close()
 
 
 def _preview_pdf_path(request: Request, row: sqlite3.Row) -> Path:
@@ -439,12 +477,26 @@ def generate_question(file_id: str, request: Request, payload: GenerateQuestionR
         session = _session(request, row["session_id"])
         if session["status"] != "active":
             raise HTTPException(409, detail={"code": "CLASSROOM_ENDED", "message": "课堂已结束，不能发起提问。"})
+        round_row = _authorize_round_submission(connection, request, row)
         prompt = (payload.prompt if payload else "请基于材料生成一个适合课堂讨论的追问。").strip()
         try:
-            path = Path(row["storage_path"])
-            material = parse_material_file(path)
-            # The instruction is kept separate from material segments; evidence
-            # validation therefore remains scoped to the submitted file only.
+            paths = [(row["filename"], Path(row["storage_path"]), row["id"])]
+            if round_row is not None:
+                sibling_rows = connection.execute(
+                    """SELECT f.id,f.filename,f.storage_path FROM submission_files f JOIN submissions s ON s.id=f.submission_id
+                       WHERE s.session_id=? AND s.session_student_id=? AND s.round_id=? AND s.status='submitted'
+                       ORDER BY f.created_at,f.id""",
+                    (row["session_id"], row["session_student_id"], row["round_id"]),
+                ).fetchall()
+                paths = [(item["filename"], Path(item["storage_path"]), item["id"]) for item in sibling_rows]
+            parsed = [parse_material_file(path) for _, path, _ in paths]
+            segments = tuple(segment for material in parsed for segment in material.segments)
+            material = ParsedMaterial(
+                material_name="；".join(name for name, _, _ in paths),
+                material_type="MULTI",
+                extracted_text="\n\n".join(item.extracted_text for item in parsed),
+                segments=segments,
+            )
             instruction = prompt if prompt != "请基于材料生成一个适合课堂讨论的追问。" else None
             result = _get_submission_question_service().generate(material, instruction=instruction)
             validated_data = getattr(result, "data", None)

@@ -30,6 +30,9 @@ class TeachingEvent(BaseModel):
     level: str | None
     course_basis_json: list
     duration_ms: int | None
+    class_id: str | None = None
+    session_id: str | None = None
+    round_id: str | None = None
 
 
 class TeachingHistoryStore:
@@ -62,7 +65,10 @@ class TeachingHistoryStore:
                     score INTEGER,
                     level TEXT,
                     course_basis_json TEXT NOT NULL,
-                    duration_ms INTEGER
+                    duration_ms INTEGER,
+                    class_id TEXT,
+                    session_id TEXT,
+                    round_id TEXT
                 )"""
             )
 
@@ -72,9 +78,13 @@ class TeachingHistoryStore:
         data["input_json"] = json.loads(data["input_json"])
         data["output_json"] = json.loads(data["output_json"])
         data["course_basis_json"] = json.loads(data["course_basis_json"])
+        meta = data.get("input_json", {})
+        data["class_id"] = meta.get("class_id")
+        data["session_id"] = meta.get("session_id")
+        data["round_id"] = meta.get("round_id")
         return TeachingEvent(**data)
 
-    def add(self, *, course_id: str, task_type: str, input_data: dict, output_data: dict, duration_ms: int | None = None, student_id: str | None = None) -> TeachingEvent:
+    def add(self, *, course_id: str, task_type: str, input_data: dict, output_data: dict, duration_ms: int | None = None, student_id: str | None = None, class_id: str | None = None, session_id: str | None = None, round_id: str | None = None) -> TeachingEvent:
         evaluation = output_data.get("question_evaluation") if isinstance(output_data, dict) else None
         direct_score = output_data.get("score") if isinstance(output_data, dict) else None
         direct_level = output_data.get("level") if isinstance(output_data, dict) else None
@@ -85,12 +95,19 @@ class TeachingHistoryStore:
             level=evaluation.get("level") if isinstance(evaluation, dict) else direct_level,
             course_basis_json=output_data.get("course_basis", []) if isinstance(output_data, dict) else [],
             duration_ms=duration_ms,
+            class_id=class_id, session_id=session_id, round_id=round_id,
         )
         with self._connect() as connection:
-            connection.execute("INSERT INTO teaching_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (event.id, event.course_id, event.created_at, event.task_type, event.student_id, json.dumps(event.input_json, ensure_ascii=False), json.dumps(event.output_json, ensure_ascii=False), event.score, event.level, json.dumps(event.course_basis_json, ensure_ascii=False), event.duration_ms))
+            connection.execute(
+                "INSERT INTO teaching_events (id, course_id, created_at, task_type, student_id, input_json, output_json, score, level, course_basis_json, duration_ms, class_id, session_id, round_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (event.id, event.course_id, event.created_at, event.task_type, event.student_id,
+                 json.dumps(event.input_json, ensure_ascii=False), json.dumps(event.output_json, ensure_ascii=False),
+                 event.score, event.level, json.dumps(event.course_basis_json, ensure_ascii=False), event.duration_ms,
+                 event.class_id, event.session_id, event.round_id),
+            )
         return event
 
-    def list(self, course_id: str, task_type: str | None = None, created_from: str | None = None, created_to: str | None = None, page: int = 1, page_size: int = 20) -> tuple[list[TeachingEvent], int]:
+    def list(self, course_id: str, task_type: str | None = None, created_from: str | None = None, created_to: str | None = None, page: int = 1, page_size: int = 20, class_id: str | None = None, session_id: str | None = None) -> tuple[list[TeachingEvent], int]:
         clauses = ["course_id = ?"]
         params: list[object] = [course_id]
         if task_type:
@@ -157,7 +174,7 @@ def _first_text(value: object, keys: tuple[str, ...]) -> str:
 
 
 def _input_summary(event: TeachingEvent) -> str:
-    text = _first_text(event.input_json, ("question", "student_answer", "text", "content"))
+    text = _first_text(event.input_json, ("question_cleaned", "answer_cleaned", "question", "student_answer", "text", "content"))
     if text:
         return text[:500]
     count = event.input_json.get("file_count") if isinstance(event.input_json, dict) else None
@@ -216,9 +233,12 @@ def export_history_csv(course_id: str, task_type: str | None = None, created_fro
 
 
 @router.get("")
-def list_history(course_id: str, task_type: str | None = None, created_from: str | None = None, created_to: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), store: CourseStore = Depends(get_course_store), history: TeachingHistoryStore = Depends(get_history_store)) -> dict:
+def list_history(course_id: str, task_type: str | None = None, class_id: str | None = None, session_id: str | None = None, created_from: str | None = None, created_to: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), store: CourseStore = Depends(get_course_store), history: TeachingHistoryStore = Depends(get_history_store)) -> dict:
     _ensure_course(course_id, store)
     events, total = history.list(course_id, task_type, created_from, created_to, page, page_size)
+    if class_id == "__unassigned__": events = [e for e in events if e.class_id is None]; total = len(events)
+    elif class_id: events = [e for e in events if e.class_id == class_id]; total = len(events)
+    if session_id: events = [e for e in events if e.session_id == session_id]; total = len(events)
     return {"items": [_public_event(event) for event in events], "total": total, "page": page, "page_size": page_size}
 
 
@@ -246,6 +266,9 @@ def clear_history(course_id: str, store: CourseStore = Depends(get_course_store)
 
 def _public_event(event: TeachingEvent) -> dict:
     visible = event.model_dump()
+    if event.task_type in {"question_optimize", "answer_evaluate"}:
+        allowed = {"question", "question_cleaned", "student_answer", "answer_cleaned", "cleanup_status"}
+        visible["input_json"] = {key: value for key, value in event.input_json.items() if key in allowed}
     if event.task_type == "presentation_questions":
         visible["output_json"] = public_presentation_result(event.output_json)
     return visible

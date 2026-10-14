@@ -352,9 +352,33 @@ async function studentRequest<T>(path: string, method: string, body?: object): P
 }
 export function studentState(): Promise<any> { return studentRequest('/api/student/state', 'GET'); }
 export function sendStudentMessage(body: string): Promise<any> { return studentRequest('/api/student/messages','POST',{body}); }
+export function studentOralState(sessionId: string): Promise<any> { return studentRequest(`/api/sessions/${sessionId}/oral-state`, 'GET'); }
+export function saveOralDraft(sessionId: string, kind: "question" | "answer", body: string): Promise<any> { return studentRequest(`/api/sessions/${sessionId}/oral-drafts`, 'PATCH', { kind, body }); }
+export function submitOralQuestion(sessionId: string, body: string): Promise<any> { return studentRequest(`/api/sessions/${sessionId}/oral-questions`, 'POST', { body }); }
+export function submitOralAnswer(sessionId: string, body: string): Promise<any> { return studentRequest(`/api/sessions/${sessionId}/oral-answers`, 'POST', { body }); }
+export function teacherOralState(sessionId: string): Promise<any> { return getJson(`/api/sessions/${sessionId}/oral-state`); }
+export function optimizeOralQuestion(questionId: string): Promise<any> { return postJson(`/api/oral/questions/${questionId}/optimize`, {}); }
+export function evaluateOralAnswer(answerId: string): Promise<any> { return postJson(`/api/oral/answers/${answerId}/evaluate`, {}); }
+export function createCollaborationRound(payload: {class_id:string; session_id:string; feature_type:string; question_snapshot?:string}): Promise<any> { return postJson('/api/collaboration/rounds', payload); }
+export function completeCollaborationRound(roundId:string): Promise<any> { return postJson(`/api/collaboration/rounds/${roundId}/complete`, {}); }
+export function cancelCollaborationRound(roundId:string): Promise<any> { return postJson(`/api/collaboration/rounds/${roundId}/cancel`, {}); }
+export function claimCollaborationToken(token:string): Promise<any> { return studentRequest(`/api/collaboration/tokens/${encodeURIComponent(token)}/claim`, 'POST'); }
+export function collaborationStudentState(roundId:string): Promise<any> { return studentRequest(`/api/collaboration/rounds/${roundId}/student-state`, 'GET'); }
+export function completeCollaborationClaim(claimId:string): Promise<any> { return studentRequest(`/api/collaboration/claims/${claimId}/complete`, 'POST'); }
+export function saveCollaborationEntry(claimId:string,text:string,answer=''): Promise<any> { return studentRequest(`/api/collaboration/claims/${claimId}/entry`, 'PATCH', {text,answer}); }
+export function getCollaborationEntry(roundId:string): Promise<any> { return getJson(`/api/collaboration/rounds/${roundId}/entry`); }
+export function saveTeacherCollaborationEntry(roundId:string,text:string,answer=''): Promise<any> { return requestJson(`/api/collaboration/rounds/${roundId}/teacher-entry`, 'PATCH', {text,answer}); }
+export function submitCollaborationRound(roundId:string): Promise<any> { return postJson(`/api/collaboration/rounds/${roundId}/submit`, {}); }
+export function claimCollaboration(roundId:string): Promise<any> { return studentRequest(`/api/collaboration/rounds/${roundId}/claim`, 'POST', {round_id:roundId}); }
+export function listCollaborationClaims(roundId:string): Promise<any[]> { return getJson(`/api/collaboration/rounds/${roundId}/claims`); }
+export function acceptCollaborationClaim(id:string): Promise<any> { return postJson(`/api/collaboration/claims/${id}/accept`, {}); }
+export function rejectCollaborationClaim(id:string): Promise<any> { return postJson(`/api/collaboration/claims/${id}/reject`, {}); }
+export function releaseCollaborationClaim(id:string): Promise<any> { return postJson(`/api/collaboration/claims/${id}/release`, {}); }
+export function returnCollaborationClaim(id:string): Promise<any> { return postJson(`/api/collaboration/claims/${id}/return`, {}); }
+export function cancelCollaborationClaim(id:string): Promise<any> { return postJson(`/api/collaboration/claims/${id}/cancel`, {}); }
 
 export interface SubmissionFile { id: string; file_id: string; filename: string; file_type: string; size_bytes: number; size?: number; preview_type: string; chunk_summary?: string; uploaded_at: string; }
-export interface Submission { submission_id: string; id: string; session_id: string; status: string; created_at: string; updated_at: string; student: { name?: string | null; student_no?: string | null }; files: SubmissionFile[]; }
+export interface Submission { submission_id: string; id: string; session_id: string; round_id?: string | null; status: string; created_at: string; updated_at: string; student: { name?: string | null; student_no?: string | null }; files: SubmissionFile[]; }
 export interface SubmissionPage { items: Submission[]; submissions?: Submission[]; total: number; page: number; page_size: number; }
 export type PreviewStatus = "PREVIEW_OK" | "TEXT";
 export interface SubmissionPreview { status: PreviewStatus; file_id: string; filename: string; file_type: string; preview_type: string; size_bytes: number; content_url: string; preview_url?: string; text?: string; }
@@ -365,6 +389,9 @@ export async function createSubmission(sessionId: string, files: File[]): Promis
   const base = await getApiBaseUrl();
   const response = await fetch(`${base}/api/sessions/${sessionId}/submissions`, { method: "POST", headers: token ? { "X-Student-Session": token } : undefined, body: form });
   return parseResponse<Submission>(response);
+}
+export function createSubmissionWithProgress(sessionId:string, files:File[], roundId:string|undefined, onProgress:(value:number)=>void):Promise<Submission>{
+  return new Promise(async (resolve,reject)=>{ const form=new FormData(); files.forEach(f=>form.append('files',f)); if(roundId) form.append('round_id',roundId); const xhr=new XMLHttpRequest(); xhr.open('POST',`${await getApiBaseUrl()}/api/sessions/${sessionId}/submissions`); const token=sessionStorage.getItem('class-student-token'); if(token)xhr.setRequestHeader('X-Student-Session',token); xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round(e.loaded/e.total*100));}; xhr.onload=()=>{try{const data=JSON.parse(xhr.responseText); if(xhr.status>=200&&xhr.status<300)resolve(data); else reject(new Error(data.detail?.message||data.detail||'上传失败'));}catch(e){reject(e)}}; xhr.onerror=()=>reject(new Error('上传连接失败')); xhr.send(form); });
 }
 export function listSubmissions(sessionId: string, params: Record<string, string | number | undefined> = {}): Promise<SubmissionPage> {
   const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
